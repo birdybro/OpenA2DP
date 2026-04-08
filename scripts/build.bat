@@ -40,6 +40,7 @@ set C_SRCS=
 set C_SRCS=%C_SRCS% "%SRC_CORE%\config.c"
 set C_SRCS=%C_SRCS% "%SRC_CORE%\validation.c"
 set C_SRCS=%C_SRCS% "%SRC_CORE%\log.c"
+set C_SRCS=%C_SRCS% "%SRC_APP%\panels.c"
 set C_SRCS=%C_SRCS% "%SRC_APP%\main.c"
 
 :: ── Compile C++ ────────────────────────────────────────────────────
