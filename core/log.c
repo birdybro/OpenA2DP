@@ -36,6 +36,12 @@ void oa2dp_log(OA2DP_LogLevel level, const char *fmt, ...)
         g_log.count++;
 }
 
+void oa2dp_log_clear(void)
+{
+    g_log.head = 0;
+    g_log.count = 0;
+}
+
 const OA2DP_LogBuffer *oa2dp_log_get_buffer(void)
 {
     return &g_log;

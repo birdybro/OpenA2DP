@@ -13,8 +13,15 @@
 /* Aggregated UI state passed each frame. */
 typedef struct OA2DP_UIState {
     OA2DP_DeviceList    devices;
-    int                 selected;      /* index into devices */
+    int                 selected;       /* index into devices */
+
+    /* Log panel state. */
+    int                 log_show_level[4];  /* filter per OA2DP_LogLevel */
+    int                 log_auto_scroll;
 } OA2DP_UIState;
+
+/* Initialize UI state with sensible defaults. */
+void oa2dp_ui_state_init(OA2DP_UIState *ui);
 
 /* Draw the full UI (call once per frame between begin/end frame). */
 void oa2dp_panels_draw(OA2DP_UIState *ui);

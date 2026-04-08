@@ -26,6 +26,9 @@ void oa2dp_log(OA2DP_LogLevel level, const char *fmt, ...);
 #define OA2DP_LOG_WARN(fmt, ...)  oa2dp_log(OA2DP_LOG_WARN,  (fmt), ##__VA_ARGS__)
 #define OA2DP_LOG_ERROR(fmt, ...) oa2dp_log(OA2DP_LOG_ERROR, (fmt), ##__VA_ARGS__)
 
+/* Clear all entries from the log buffer. */
+void oa2dp_log_clear(void);
+
 /* Return a pointer to the global log buffer (read-only for UI). */
 const OA2DP_LogBuffer *oa2dp_log_get_buffer(void);
 

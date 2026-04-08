@@ -273,6 +273,19 @@ static void draw_status(OA2DP_UIState *ui)
     }
 }
 
+/* ── UI state init ──────────────────────────────────────────────────── */
+
+void oa2dp_ui_state_init(OA2DP_UIState *ui)
+{
+    memset(ui, 0, sizeof(*ui));
+    ui->selected = 0;
+    ui->log_show_level[OA2DP_LOG_DEBUG] = 1;
+    ui->log_show_level[OA2DP_LOG_INFO]  = 1;
+    ui->log_show_level[OA2DP_LOG_WARN]  = 1;
+    ui->log_show_level[OA2DP_LOG_ERROR] = 1;
+    ui->log_auto_scroll = 1;
+}
+
 /* ── Log panel ──────────────────────────────────────────────────────── */
 
 static const ImVec4_c log_colors[] = {
@@ -282,35 +295,78 @@ static const ImVec4_c log_colors[] = {
     { 1.0f, 0.3f, 0.3f, 1.0f },   /* ERROR - red */
 };
 
-static void draw_log(void)
+static const char *log_level_names[] = { "DEBUG", "INFO", "WARN", "ERROR" };
+
+static void draw_log(OA2DP_UIState *ui)
 {
-    const OA2DP_LogBuffer *buf = oa2dp_log_get_buffer();
-    int start = (buf->count < OA2DP_LOG_RING_SIZE)
-                    ? 0
-                    : buf->head;
-
-    for (int i = 0; i < buf->count; i++) {
-        int idx = (start + i) % OA2DP_LOG_RING_SIZE;
-        const OA2DP_LogEntry *e = &buf->entries[idx];
-
-        /* Format timestamp */
-        struct tm tm_buf;
-        localtime_s(&tm_buf, &e->timestamp);
-        char ts[32];
-        strftime(ts, sizeof(ts), "%H:%M:%S", &tm_buf);
-
-        /* Level color */
-        ImVec4_c col = log_colors[e->level < OA2DP_LOG_COUNT ? e->level : 0];
-
-        char line[600];
-        snprintf(line, sizeof(line), "[%s] [%-5s] %s",
-                 ts, oa2dp_log_level_str(e->level), e->message);
-        igTextColored(col, "%s", line);
+    /* ── Toolbar row ────────────────────────────────────────────── */
+    for (int lv = 0; lv < OA2DP_LOG_COUNT; lv++) {
+        if (lv > 0) igSameLine(0, 8);
+        bool show = (bool)ui->log_show_level[lv];
+        igTextColored(log_colors[lv], "%s", log_level_names[lv]);
+        igSameLine(0, 2);
+        char label[32];
+        snprintf(label, sizeof(label), "##logfilt%d", lv);
+        if (igCheckbox(label, &show))
+            ui->log_show_level[lv] = show;
     }
 
-    /* Auto-scroll to bottom */
-    if (igGetScrollY() >= igGetScrollMaxY() - 20)
-        igSetScrollHereY(1.0f);
+    igSameLine(0, 16);
+    {
+        bool as = (bool)ui->log_auto_scroll;
+        igCheckbox("Auto-scroll", &as);
+        ui->log_auto_scroll = as;
+    }
+
+    igSameLine(0, 16);
+    {
+        ImVec2_c btn = { 50, 0 };
+        if (igButton("Clear", btn))
+            oa2dp_log_clear();
+    }
+
+    igSeparator();
+
+    /* ── Log entries ────────────────────────────────────────────── */
+    {
+        ImVec2_c child_size = { 0, 0 };
+        igBeginChild_Str("##logscroll", child_size, ImGuiChildFlags_None,
+                         ImGuiWindowFlags_HorizontalScrollbar);
+
+        const OA2DP_LogBuffer *buf = oa2dp_log_get_buffer();
+        int start = (buf->count < OA2DP_LOG_RING_SIZE)
+                        ? 0
+                        : buf->head;
+
+        for (int i = 0; i < buf->count; i++) {
+            int idx = (start + i) % OA2DP_LOG_RING_SIZE;
+            const OA2DP_LogEntry *e = &buf->entries[idx];
+
+            /* Filter by level. */
+            if (e->level < OA2DP_LOG_COUNT && !ui->log_show_level[e->level])
+                continue;
+
+            /* Format timestamp. */
+            struct tm tm_buf;
+            localtime_s(&tm_buf, &e->timestamp);
+            char ts[32];
+            strftime(ts, sizeof(ts), "%H:%M:%S", &tm_buf);
+
+            /* Level color. */
+            ImVec4_c col = log_colors[e->level < OA2DP_LOG_COUNT ? e->level : 0];
+
+            char line[600];
+            snprintf(line, sizeof(line), "[%s] [%-5s] %s",
+                     ts, oa2dp_log_level_str(e->level), e->message);
+            igTextColored(col, "%s", line);
+        }
+
+        /* Auto-scroll to bottom when enabled and near the end. */
+        if (ui->log_auto_scroll && igGetScrollY() >= igGetScrollMaxY() - 20)
+            igSetScrollHereY(1.0f);
+
+        igEndChild();
+    }
 }
 
 /* ── Main draw function ─────────────────────────────────────────────── */
@@ -379,10 +435,10 @@ void oa2dp_panels_draw(OA2DP_UIState *ui)
             ImVec2_c log_size = { 0, 0 };  /* fill remaining */
             igBeginChild_Str("##log", log_size,
                              ImGuiChildFlags_Borders,
-                             ImGuiWindowFlags_HorizontalScrollbar);
+                             ImGuiWindowFlags_None);
             igText("Log");
             igSeparator();
-            draw_log();
+            draw_log(ui);
             igEndChild();
         }
 

@@ -20,8 +20,6 @@
 #include "oa2dp_audio_status.h"
 #include "oa2dp_log.h"
 
-#include <string.h>
-
 /* Forward declaration — we need the UI state in WndProc for device changes. */
 static OA2DP_UIState g_ui;
 static int g_rescan_needed = 0;
@@ -106,8 +104,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         oa2dp_log(OA2DP_LOG_WARN, "audio status init failed, endpoint data unavailable");
 
     /* ── Device enumeration ─────────────────────────────────────── */
-    memset(&g_ui, 0, sizeof(g_ui));
-    g_ui.selected = 0;
+    oa2dp_ui_state_init(&g_ui);
 
     oa2dp_device_scan(&g_ui.devices);
 
