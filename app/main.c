@@ -38,6 +38,27 @@ static void snapshot_profiles(void)
            sizeof(OA2DP_DeviceProfile) * g_saved_count);
 }
 
+/* Save profiles for new devices that have no file on disk yet. */
+static void save_new_profiles(void)
+{
+    for (int i = 0; i < g_ui.devices.count; i++) {
+        OA2DP_DeviceProfile *cur = &g_ui.devices.profiles[i];
+        char path[260];
+        if (oa2dp_config_path_for_device(cur->device_id, path, sizeof(path)) != 0)
+            continue;
+
+        FILE *f = fopen(path, "r");
+        if (f) {
+            fclose(f);  /* file exists, skip */
+            continue;
+        }
+
+        if (oa2dp_profile_save(path, cur) == 0)
+            oa2dp_log(OA2DP_LOG_INFO, "saved initial profile for '%s'",
+                      cur->display_name);
+    }
+}
+
 static void save_dirty_profiles(void)
 {
     for (int i = 0; i < g_ui.devices.count; i++) {
@@ -150,6 +171,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     oa2dp_ui_state_init(&g_ui);
 
     oa2dp_device_scan(&g_ui.devices);
+    save_new_profiles();
     snapshot_profiles();
 
     if (g_ui.devices.count == 0)
@@ -185,6 +207,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             save_dirty_profiles();
             int prev_count = g_ui.devices.count;
             oa2dp_device_scan(&g_ui.devices);
+            save_new_profiles();
             snapshot_profiles();
             if (g_ui.selected >= g_ui.devices.count)
                 g_ui.selected = (g_ui.devices.count > 0) ? 0 : -1;

@@ -202,7 +202,7 @@ int oa2dp_profile_load(const char *path, OA2DP_DeviceProfile *p)
 {
     FILE *f = fopen(path, "r");
     if (!f) {
-        oa2dp_log(OA2DP_LOG_ERROR, "config: failed to open '%s' for reading", path);
+        oa2dp_log(OA2DP_LOG_DEBUG, "config: no saved profile at '%s'", path);
         return -1;
     }
 
