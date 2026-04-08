@@ -10,6 +10,25 @@
 
 #include "oa2dp_types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/*
+ * Ensure the config directory (%APPDATA%\OpenA2DP\) exists.
+ * Returns 0 on success, -1 on failure.
+ */
+int oa2dp_config_init(void);
+
+/*
+ * Build the full file path for a device profile.
+ * Writes to 'buf' (up to buf_size bytes).  The file is named by
+ * the device's BT address with colons replaced by underscores.
+ * Returns 0 on success, -1 on failure.
+ */
+int oa2dp_config_path_for_device(const char *device_id,
+                                 char *buf, int buf_size);
+
 /* Fill a profile with safe defaults. */
 void oa2dp_profile_defaults(OA2DP_DeviceProfile *p);
 
@@ -30,5 +49,9 @@ int oa2dp_profile_save(const char *path, const OA2DP_DeviceProfile *p);
  * Returns 0 on success, -1 on failure.
  */
 int oa2dp_profile_load(const char *path, OA2DP_DeviceProfile *p);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* OA2DP_CONFIG_H */

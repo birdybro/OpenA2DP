@@ -127,6 +127,25 @@ int oa2dp_device_scan(OA2DP_DeviceList *list)
         wide_to_utf8(device_info.szName,
                      prof->display_name, sizeof(prof->display_name));
 
+        /* Try to load a saved profile (user settings). */
+        {
+            char path[MAX_PATH];
+            if (oa2dp_config_path_for_device(prof->device_id, path, sizeof(path)) == 0) {
+                char saved_id[256];
+                char saved_name[128];
+                snprintf(saved_id, sizeof(saved_id), "%s", prof->device_id);
+                snprintf(saved_name, sizeof(saved_name), "%s", prof->display_name);
+
+                if (oa2dp_profile_load(path, prof) == 0) {
+                    oa2dp_log(OA2DP_LOG_INFO, "device scan: loaded saved profile for '%s'",
+                              saved_name);
+                }
+                /* Always keep the live device_id and display_name from the scan. */
+                snprintf(prof->device_id, sizeof(prof->device_id), "%s", saved_id);
+                snprintf(prof->display_name, sizeof(prof->display_name), "%s", saved_name);
+            }
+        }
+
         /* Connection state. */
         stat->connection = device_info.fConnected
                                ? OA2DP_CONN_CONNECTED

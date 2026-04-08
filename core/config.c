@@ -5,6 +5,12 @@
  * config.c - INI-style profile save / load
  */
 
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <shlobj.h>
+
 #include "oa2dp_config.h"
 #include "oa2dp_log.h"
 
@@ -12,6 +18,50 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+
+/* ── config directory ───────────────────────────────────────────────── */
+
+static char g_config_dir[MAX_PATH] = {0};
+
+int oa2dp_config_init(void)
+{
+    char appdata[MAX_PATH];
+    if (FAILED(SHGetFolderPathA(NULL, CSIDL_APPDATA, NULL, 0, appdata))) {
+        oa2dp_log(OA2DP_LOG_ERROR, "config: failed to get APPDATA path");
+        return -1;
+    }
+
+    snprintf(g_config_dir, sizeof(g_config_dir), "%s\\OpenA2DP", appdata);
+
+    if (!CreateDirectoryA(g_config_dir, NULL)) {
+        DWORD err = GetLastError();
+        if (err != ERROR_ALREADY_EXISTS) {
+            oa2dp_log(OA2DP_LOG_ERROR, "config: failed to create '%s' (err=%lu)",
+                      g_config_dir, err);
+            return -1;
+        }
+    }
+
+    oa2dp_log(OA2DP_LOG_INFO, "config: directory '%s'", g_config_dir);
+    return 0;
+}
+
+int oa2dp_config_path_for_device(const char *device_id,
+                                 char *buf, int buf_size)
+{
+    if (!g_config_dir[0] || !device_id || !buf)
+        return -1;
+
+    /* Replace colons with underscores for a safe filename. */
+    char safe_id[256];
+    snprintf(safe_id, sizeof(safe_id), "%s", device_id);
+    for (char *p = safe_id; *p; p++) {
+        if (*p == ':') *p = '_';
+    }
+
+    snprintf(buf, buf_size, "%s\\%s.ini", g_config_dir, safe_id);
+    return 0;
+}
 
 /* ── helpers ────────────────────────────────────────────────────────── */
 
