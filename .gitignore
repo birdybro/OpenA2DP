@@ -54,3 +54,6 @@ dkms.conf
 # debug information files
 *.dwo
 .claude/settings.local.json
+
+# Build output
+build/
