@@ -8,6 +8,7 @@ call "C:\Program Files\Microsoft Visual Studio\18\Professional\VC\Auxiliary\Buil
 set ROOT=%~dp0..
 set SRC_APP=%ROOT%\app
 set SRC_CORE=%ROOT%\core
+set SRC_SVC=%ROOT%\service
 set CIMGUI=%ROOT%\third_party\cimgui
 set IMGUI=%CIMGUI%\imgui
 set BACKENDS=%IMGUI%\backends
@@ -40,6 +41,7 @@ set C_SRCS=
 set C_SRCS=%C_SRCS% "%SRC_CORE%\config.c"
 set C_SRCS=%C_SRCS% "%SRC_CORE%\validation.c"
 set C_SRCS=%C_SRCS% "%SRC_CORE%\log.c"
+set C_SRCS=%C_SRCS% "%SRC_SVC%\device_enum.c"
 set C_SRCS=%C_SRCS% "%SRC_APP%\panels.c"
 set C_SRCS=%C_SRCS% "%SRC_APP%\main.c"
 
@@ -62,7 +64,7 @@ if %errorlevel% neq 0 (
 :: ── Link ───────────────────────────────────────────────────────────
 echo --- Linking ---
 set OBJS=%OUTDIR%\*.obj
-set LIBS=d3d11.lib dxgi.lib user32.lib gdi32.lib shell32.lib dwmapi.lib
+set LIBS=d3d11.lib dxgi.lib user32.lib gdi32.lib shell32.lib dwmapi.lib bthprops.lib
 link /nologo /subsystem:windows /out:"%EXE%" %OUTDIR%\*.obj %LIBS%
 if %errorlevel% neq 0 (
     echo Link FAILED

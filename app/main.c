@@ -9,16 +9,21 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <dbt.h>
 
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #include "cimgui.h"
 
 #include "renderer.h"
 #include "panels.h"
+#include "oa2dp_device.h"
 #include "oa2dp_log.h"
-#include "oa2dp_config.h"
 
 #include <string.h>
+
+/* Forward declaration — we need the UI state in WndProc for device changes. */
+static OA2DP_UIState g_ui;
+static int g_rescan_needed = 0;
 
 /* ── WndProc ────────────────────────────────────────────────────────── */
 
@@ -34,9 +39,15 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg,
             oa2dp_renderer_resize((UINT)LOWORD(lparam), (UINT)HIWORD(lparam));
         return 0;
     case WM_SYSCOMMAND:
-        if ((wparam & 0xFFF0) == SC_KEYMENU)  /* disable ALT menu */
+        if ((wparam & 0xFFF0) == SC_KEYMENU)
             return 0;
         break;
+    case WM_DEVICECHANGE:
+        if (wparam == DBT_DEVICEARRIVAL || wparam == DBT_DEVICEREMOVECOMPLETE) {
+            oa2dp_log(OA2DP_LOG_INFO, "Bluetooth device change detected");
+            g_rescan_needed = 1;
+        }
+        return 0;
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;
@@ -87,50 +98,25 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     ShowWindow(hwnd, nCmdShow);
     UpdateWindow(hwnd);
 
-    oa2dp_log(OA2DP_LOG_INFO, "renderer initialized, entering main loop");
+    oa2dp_log(OA2DP_LOG_INFO, "renderer initialized");
 
-    /* ── Mock data ──────────────────────────────────────────────── */
-    OA2DP_UIState ui;
-    memset(&ui, 0, sizeof(ui));
-    ui.device_count = 3;
-    ui.selected     = 0;
+    /* ── Device enumeration ─────────────────────────────────────── */
+    memset(&g_ui, 0, sizeof(g_ui));
+    g_ui.selected = 0;
 
-    /* Device 0: connected SBC headphones */
-    oa2dp_profile_defaults(&ui.profiles[0]);
-    snprintf(ui.profiles[0].device_id,    sizeof(ui.profiles[0].device_id),    "AA:BB:CC:DD:EE:01");
-    snprintf(ui.profiles[0].display_name,  sizeof(ui.profiles[0].display_name),  "WH-1000XM5");
-    ui.statuses[0].connection          = OA2DP_CONN_CONNECTED;
-    ui.statuses[0].active_codec        = OA2DP_CODEC_SBC;
-    ui.statuses[0].sample_rate         = 44100;
-    ui.statuses[0].bit_depth           = 16;
-    ui.statuses[0].channels            = 2;
-    ui.statuses[0].stereo_mode         = OA2DP_STEREO_JOINT;
-    ui.statuses[0].block_size          = OA2DP_BLOCK_16;
-    ui.statuses[0].allocation_method   = OA2DP_ALLOC_LOUDNESS;
-    ui.statuses[0].subbands            = OA2DP_SUBBANDS_8;
-    ui.statuses[0].bitpool             = 53;
-    ui.statuses[0].estimated_bitrate_kbps = 328;
+    oa2dp_device_scan(&g_ui.devices);
 
-    /* Device 1: connecting AAC earbuds */
-    oa2dp_profile_defaults(&ui.profiles[1]);
-    snprintf(ui.profiles[1].device_id,    sizeof(ui.profiles[1].device_id),    "AA:BB:CC:DD:EE:02");
-    snprintf(ui.profiles[1].display_name,  sizeof(ui.profiles[1].display_name),  "AirPods Pro");
-    ui.profiles[1].preferred_codec = OA2DP_CODEC_AAC;
-    ui.statuses[1].connection      = OA2DP_CONN_CONNECTING;
-    ui.statuses[1].active_codec    = OA2DP_CODEC_AAC;
-    ui.statuses[1].sample_rate     = 48000;
-    ui.statuses[1].channels        = 2;
+    if (g_ui.devices.count == 0)
+        oa2dp_log(OA2DP_LOG_WARN, "no Bluetooth audio devices found");
 
-    /* Device 2: disconnected speaker */
-    oa2dp_profile_defaults(&ui.profiles[2]);
-    snprintf(ui.profiles[2].device_id,    sizeof(ui.profiles[2].device_id),    "AA:BB:CC:DD:EE:03");
-    snprintf(ui.profiles[2].display_name,  sizeof(ui.profiles[2].display_name),  "JBL Charge 5");
-    ui.statuses[2].connection = OA2DP_CONN_DISCONNECTED;
+    /* Register for device change notifications. */
+    oa2dp_device_register_notify(hwnd);
 
-    oa2dp_log(OA2DP_LOG_INFO, "loaded %d mock devices", ui.device_count);
-    oa2dp_log(OA2DP_LOG_DEBUG, "mock device 0: %s (connected, SBC)", ui.profiles[0].display_name);
-    oa2dp_log(OA2DP_LOG_DEBUG, "mock device 1: %s (connecting, AAC)", ui.profiles[1].display_name);
-    oa2dp_log(OA2DP_LOG_WARN,  "mock device 2: %s (disconnected)", ui.profiles[2].display_name);
+    /* Status refresh timer — poll every ~2 seconds. */
+    DWORD last_refresh = GetTickCount();
+    const DWORD REFRESH_INTERVAL_MS = 2000;
+
+    oa2dp_log(OA2DP_LOG_INFO, "entering main loop");
 
     /* Main loop. */
     MSG msg;
@@ -145,15 +131,35 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         if (!running)
             break;
 
+        /* Re-scan if a device change was detected. */
+        if (g_rescan_needed) {
+            g_rescan_needed = 0;
+            int prev_count = g_ui.devices.count;
+            oa2dp_device_scan(&g_ui.devices);
+            if (g_ui.selected >= g_ui.devices.count)
+                g_ui.selected = (g_ui.devices.count > 0) ? 0 : -1;
+            if (g_ui.devices.count != prev_count)
+                oa2dp_log(OA2DP_LOG_INFO, "device list updated: %d device(s)",
+                          g_ui.devices.count);
+        }
+
+        /* Periodic status refresh. */
+        DWORD now = GetTickCount();
+        if (now - last_refresh >= REFRESH_INTERVAL_MS) {
+            oa2dp_device_refresh_status(&g_ui.devices);
+            last_refresh = now;
+        }
+
         if (!oa2dp_renderer_begin_frame())
             continue;
 
-        oa2dp_panels_draw(&ui);
+        oa2dp_panels_draw(&g_ui);
 
         oa2dp_renderer_end_frame();
     }
 
     oa2dp_log(OA2DP_LOG_INFO, "shutting down");
+    oa2dp_device_unregister_notify();
     oa2dp_renderer_shutdown();
     DestroyWindow(hwnd);
     UnregisterClassW(wc.lpszClassName, wc.hInstance);

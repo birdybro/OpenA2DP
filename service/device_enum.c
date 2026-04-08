@@ -1,0 +1,256 @@
+/*
+ * OpenA2DP - Bluetooth A2DP control tool
+ * SPDX-License-Identifier: GPL-3.0-only
+ *
+ * device_enum.c - Bluetooth device enumeration via Windows Bluetooth APIs
+ */
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <bluetoothapis.h>
+#include <bthdef.h>
+#include <dbt.h>
+#include <initguid.h>
+
+#include "oa2dp_device.h"
+#include "oa2dp_config.h"
+#include "oa2dp_log.h"
+
+#include <stdio.h>
+#include <string.h>
+
+/* Device interface GUID for Bluetooth port (for RegisterDeviceNotification). */
+DEFINE_GUID(OA2DP_GUID_BTHPORT,
+    0x850302a, 0xb344, 0x4fda,
+    0x9b, 0xe9, 0x90, 0x57, 0x6b, 0x8d, 0x46, 0xf0);
+
+static HDEVNOTIFY g_notify_handle = NULL;
+
+/* ── helpers ────────────────────────────────────────────────────────── */
+
+/* Check if a Bluetooth Class of Device indicates audio capability.
+ * A2DP devices typically have:
+ *   - Major class = Audio/Video (0x04), OR
+ *   - Service class includes Audio bit (0x0100)
+ */
+static int is_audio_device(ULONG cod)
+{
+    ULONG major   = GET_COD_MAJOR(cod);
+    ULONG service = GET_COD_SERVICE(cod);
+
+    if (major == COD_MAJOR_AUDIO)
+        return 1;
+    if (service & COD_SERVICE_AUDIO)
+        return 1;
+    return 0;
+}
+
+/* Format a Bluetooth address as "XX:XX:XX:XX:XX:XX". */
+static void format_bt_address(BLUETOOTH_ADDRESS addr, char *buf, int buf_size)
+{
+    BYTE *b = addr.rgBytes;
+    snprintf(buf, buf_size, "%02X:%02X:%02X:%02X:%02X:%02X",
+             b[5], b[4], b[3], b[2], b[1], b[0]);
+}
+
+/* Convert wide string to UTF-8 into a fixed buffer. */
+static void wide_to_utf8(const WCHAR *src, char *dst, int dst_size)
+{
+    int len = WideCharToMultiByte(CP_UTF8, 0, src, -1, dst, dst_size, NULL, NULL);
+    if (len <= 0 && dst_size > 0)
+        dst[0] = '\0';
+}
+
+/* ── scan ───────────────────────────────────────────────────────────── */
+
+int oa2dp_device_scan(OA2DP_DeviceList *list)
+{
+    if (!list) return -1;
+    list->count = 0;
+
+    BLUETOOTH_DEVICE_SEARCH_PARAMS search_params;
+    memset(&search_params, 0, sizeof(search_params));
+    search_params.dwSize              = sizeof(search_params);
+    search_params.fReturnAuthenticated = TRUE;
+    search_params.fReturnRemembered    = TRUE;
+    search_params.fReturnConnected     = TRUE;
+    search_params.fReturnUnknown       = FALSE;
+    search_params.fIssueInquiry        = FALSE;
+    search_params.cTimeoutMultiplier   = 0;
+    search_params.hRadio               = NULL;
+
+    BLUETOOTH_DEVICE_INFO device_info;
+    memset(&device_info, 0, sizeof(device_info));
+    device_info.dwSize = sizeof(device_info);
+
+    HBLUETOOTH_DEVICE_FIND hFind =
+        BluetoothFindFirstDevice(&search_params, &device_info);
+
+    if (hFind == NULL) {
+        DWORD err = GetLastError();
+        if (err == ERROR_NO_MORE_ITEMS) {
+            oa2dp_log(OA2DP_LOG_INFO, "device scan: no paired Bluetooth devices found");
+            return 0;
+        }
+        oa2dp_log(OA2DP_LOG_ERROR, "device scan: BluetoothFindFirstDevice failed (err=%lu)", err);
+        return -1;
+    }
+
+    do {
+        if (list->count >= OA2DP_MAX_DEVICES) {
+            oa2dp_log(OA2DP_LOG_WARN, "device scan: max device limit reached (%d)",
+                      OA2DP_MAX_DEVICES);
+            break;
+        }
+
+        /* Filter: only audio-capable devices. */
+        if (!is_audio_device(device_info.ulClassofDevice))
+            continue;
+
+        int idx = list->count;
+        OA2DP_DeviceProfile *prof = &list->profiles[idx];
+        OA2DP_DeviceStatus  *stat = &list->statuses[idx];
+
+        /* Start with safe defaults. */
+        oa2dp_profile_defaults(prof);
+        memset(stat, 0, sizeof(*stat));
+
+        /* Device ID (Bluetooth address). */
+        format_bt_address(device_info.Address,
+                          prof->device_id, sizeof(prof->device_id));
+        snprintf(stat->device_id, sizeof(stat->device_id), "%s", prof->device_id);
+
+        /* Display name. */
+        wide_to_utf8(device_info.szName,
+                     prof->display_name, sizeof(prof->display_name));
+
+        /* Connection state. */
+        stat->connection = device_info.fConnected
+                               ? OA2DP_CONN_CONNECTED
+                               : OA2DP_CONN_DISCONNECTED;
+
+        /* For connected devices, fill plausible status defaults.
+         * Real codec/bitpool detection requires deeper APIs (step 6+). */
+        if (stat->connection == OA2DP_CONN_CONNECTED) {
+            stat->active_codec = OA2DP_CODEC_SBC;
+            stat->sample_rate  = 44100;
+            stat->bit_depth    = 16;
+            stat->channels     = 2;
+            stat->stereo_mode  = OA2DP_STEREO_JOINT;
+            stat->block_size   = OA2DP_BLOCK_16;
+            stat->allocation_method = OA2DP_ALLOC_LOUDNESS;
+            stat->subbands     = OA2DP_SUBBANDS_8;
+            stat->bitpool      = 53;
+            stat->estimated_bitrate_kbps = 328;
+        }
+
+        oa2dp_log(OA2DP_LOG_INFO, "device scan: [%d] %s (%s) - %s",
+                  idx, prof->display_name, prof->device_id,
+                  stat->connection == OA2DP_CONN_CONNECTED
+                      ? "connected" : "disconnected");
+
+        list->count++;
+
+    } while (BluetoothFindNextDevice(hFind, &device_info));
+
+    BluetoothFindDeviceClose(hFind);
+
+    oa2dp_log(OA2DP_LOG_INFO, "device scan: found %d audio device(s)", list->count);
+    return list->count;
+}
+
+/* ── refresh status ─────────────────────────────────────────────────── */
+
+int oa2dp_device_refresh_status(OA2DP_DeviceList *list)
+{
+    if (!list) return -1;
+
+    for (int i = 0; i < list->count; i++) {
+        OA2DP_DeviceProfile *prof = &list->profiles[i];
+        OA2DP_DeviceStatus  *stat = &list->statuses[i];
+
+        /* Parse the address back from the stored string. */
+        BLUETOOTH_DEVICE_INFO info;
+        memset(&info, 0, sizeof(info));
+        info.dwSize = sizeof(info);
+
+        unsigned int b[6];
+        if (sscanf(prof->device_id, "%02X:%02X:%02X:%02X:%02X:%02X",
+                   &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]) == 6) {
+            info.Address.rgBytes[5] = (BYTE)b[0];
+            info.Address.rgBytes[4] = (BYTE)b[1];
+            info.Address.rgBytes[3] = (BYTE)b[2];
+            info.Address.rgBytes[2] = (BYTE)b[3];
+            info.Address.rgBytes[1] = (BYTE)b[4];
+            info.Address.rgBytes[0] = (BYTE)b[5];
+        } else {
+            continue;
+        }
+
+        DWORD result = BluetoothGetDeviceInfo(NULL, &info);
+        if (result == ERROR_SUCCESS) {
+            OA2DP_ConnState prev = stat->connection;
+            stat->connection = info.fConnected
+                                   ? OA2DP_CONN_CONNECTED
+                                   : OA2DP_CONN_DISCONNECTED;
+
+            if (stat->connection != prev) {
+                oa2dp_log(OA2DP_LOG_INFO, "status: %s is now %s",
+                          prof->display_name,
+                          stat->connection == OA2DP_CONN_CONNECTED
+                              ? "connected" : "disconnected");
+
+                /* Fill plausible status for newly connected devices. */
+                if (stat->connection == OA2DP_CONN_CONNECTED) {
+                    stat->active_codec = OA2DP_CODEC_SBC;
+                    stat->sample_rate  = 44100;
+                    stat->bit_depth    = 16;
+                    stat->channels     = 2;
+                    stat->stereo_mode  = OA2DP_STEREO_JOINT;
+                    stat->block_size   = OA2DP_BLOCK_16;
+                    stat->allocation_method = OA2DP_ALLOC_LOUDNESS;
+                    stat->subbands     = OA2DP_SUBBANDS_8;
+                    stat->bitpool      = 53;
+                    stat->estimated_bitrate_kbps = 328;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+/* ── device change notifications ────────────────────────────────────── */
+
+int oa2dp_device_register_notify(void *hwnd)
+{
+    DEV_BROADCAST_DEVICEINTERFACE filter;
+    memset(&filter, 0, sizeof(filter));
+    filter.dbcc_size       = sizeof(filter);
+    filter.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
+    filter.dbcc_classguid  = OA2DP_GUID_BTHPORT;
+
+    g_notify_handle = RegisterDeviceNotificationW(
+        (HANDLE)hwnd, &filter,
+        DEVICE_NOTIFY_WINDOW_HANDLE);
+
+    if (!g_notify_handle) {
+        oa2dp_log(OA2DP_LOG_ERROR,
+                  "device notify: RegisterDeviceNotification failed (err=%lu)",
+                  GetLastError());
+        return -1;
+    }
+
+    oa2dp_log(OA2DP_LOG_INFO, "device notify: registered for Bluetooth changes");
+    return 0;
+}
+
+void oa2dp_device_unregister_notify(void)
+{
+    if (g_notify_handle) {
+        UnregisterDeviceNotification(g_notify_handle);
+        g_notify_handle = NULL;
+        oa2dp_log(OA2DP_LOG_INFO, "device notify: unregistered");
+    }
+}

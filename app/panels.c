@@ -52,9 +52,9 @@ static void draw_device_list(OA2DP_UIState *ui)
     igText("Devices");
     igSeparator();
 
-    for (int i = 0; i < ui->device_count; i++) {
-        const OA2DP_DeviceProfile *p = &ui->profiles[i];
-        const OA2DP_DeviceStatus  *s = &ui->statuses[i];
+    for (int i = 0; i < ui->devices.count; i++) {
+        const OA2DP_DeviceProfile *p = &ui->devices.profiles[i];
+        const OA2DP_DeviceStatus  *s = &ui->devices.statuses[i];
 
         ImVec4_c col = conn_color(s->connection);
         igTextColored(col, "%s", "(*)");
@@ -74,12 +74,12 @@ static void draw_device_list(OA2DP_UIState *ui)
 
 static void draw_settings(OA2DP_UIState *ui)
 {
-    if (ui->selected < 0 || ui->selected >= ui->device_count) {
+    if (ui->selected < 0 || ui->selected >= ui->devices.count) {
         igText("No device selected.");
         return;
     }
 
-    OA2DP_DeviceProfile *p = &ui->profiles[ui->selected];
+    OA2DP_DeviceProfile *p = &ui->devices.profiles[ui->selected];
 
     igText("Profile: %s", p->display_name);
     igSeparator();
@@ -199,12 +199,12 @@ static void draw_settings(OA2DP_UIState *ui)
 
 static void draw_status(OA2DP_UIState *ui)
 {
-    if (ui->selected < 0 || ui->selected >= ui->device_count) {
+    if (ui->selected < 0 || ui->selected >= ui->devices.count) {
         igText("No device selected.");
         return;
     }
 
-    const OA2DP_DeviceStatus *s = &ui->statuses[ui->selected];
+    const OA2DP_DeviceStatus *s = &ui->devices.statuses[ui->selected];
 
     /* Connection */
     {

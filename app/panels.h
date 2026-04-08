@@ -8,17 +8,12 @@
 #ifndef OA2DP_PANELS_H
 #define OA2DP_PANELS_H
 
-#include "oa2dp_types.h"
-
-/* Maximum mock devices the UI can hold. */
-#define OA2DP_MAX_DEVICES 8
+#include "oa2dp_device.h"
 
 /* Aggregated UI state passed each frame. */
 typedef struct OA2DP_UIState {
-    OA2DP_DeviceProfile profiles[OA2DP_MAX_DEVICES];
-    OA2DP_DeviceStatus  statuses[OA2DP_MAX_DEVICES];
-    int                 device_count;
-    int                 selected;      /* index into profiles/statuses */
+    OA2DP_DeviceList    devices;
+    int                 selected;      /* index into devices */
 } OA2DP_UIState;
 
 /* Draw the full UI (call once per frame between begin/end frame). */
