@@ -16,6 +16,7 @@
 
 #include "oa2dp_device.h"
 #include "oa2dp_config.h"
+#include "oa2dp_audio_status.h"
 #include "oa2dp_log.h"
 
 #include <stdio.h>
@@ -131,19 +132,24 @@ int oa2dp_device_scan(OA2DP_DeviceList *list)
                                ? OA2DP_CONN_CONNECTED
                                : OA2DP_CONN_DISCONNECTED;
 
-        /* For connected devices, fill plausible status defaults.
-         * Real codec/bitpool detection requires deeper APIs (step 6+). */
+        /* For connected devices, query the audio endpoint for real data.
+         * Fields that can't be detected (codec, bitpool, etc.) keep defaults. */
         if (stat->connection == OA2DP_CONN_CONNECTED) {
             stat->active_codec = OA2DP_CODEC_SBC;
-            stat->sample_rate  = 44100;
-            stat->bit_depth    = 16;
-            stat->channels     = 2;
             stat->stereo_mode  = OA2DP_STEREO_JOINT;
             stat->block_size   = OA2DP_BLOCK_16;
             stat->allocation_method = OA2DP_ALLOC_LOUDNESS;
             stat->subbands     = OA2DP_SUBBANDS_8;
             stat->bitpool      = 53;
-            stat->estimated_bitrate_kbps = 328;
+
+            /* Try to get real sample rate / bit depth / channels. */
+            if (oa2dp_audio_status_query(prof->device_id, stat) != 0) {
+                /* Fallback defaults if endpoint not found. */
+                stat->sample_rate  = 44100;
+                stat->bit_depth    = 16;
+                stat->channels     = 2;
+                stat->estimated_bitrate_kbps = 328;
+            }
         }
 
         oa2dp_log(OA2DP_LOG_INFO, "device scan: [%d] %s (%s) - %s",
@@ -202,18 +208,19 @@ int oa2dp_device_refresh_status(OA2DP_DeviceList *list)
                           stat->connection == OA2DP_CONN_CONNECTED
                               ? "connected" : "disconnected");
 
-                /* Fill plausible status for newly connected devices. */
                 if (stat->connection == OA2DP_CONN_CONNECTED) {
                     stat->active_codec = OA2DP_CODEC_SBC;
-                    stat->sample_rate  = 44100;
-                    stat->bit_depth    = 16;
-                    stat->channels     = 2;
                     stat->stereo_mode  = OA2DP_STEREO_JOINT;
                     stat->block_size   = OA2DP_BLOCK_16;
                     stat->allocation_method = OA2DP_ALLOC_LOUDNESS;
                     stat->subbands     = OA2DP_SUBBANDS_8;
                     stat->bitpool      = 53;
-                    stat->estimated_bitrate_kbps = 328;
+                    if (oa2dp_audio_status_query(prof->device_id, stat) != 0) {
+                        stat->sample_rate  = 44100;
+                        stat->bit_depth    = 16;
+                        stat->channels     = 2;
+                        stat->estimated_bitrate_kbps = 328;
+                    }
                 }
             }
         }

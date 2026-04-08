@@ -10,6 +10,10 @@
 
 #include "oa2dp_types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Initialize / reset the global log buffer. */
 void oa2dp_log_init(void);
 
@@ -27,5 +31,9 @@ const OA2DP_LogBuffer *oa2dp_log_get_buffer(void);
 
 /* Return the human-readable label for a log level. */
 const char *oa2dp_log_level_str(OA2DP_LogLevel level);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* OA2DP_LOG_H */

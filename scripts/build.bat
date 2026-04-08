@@ -35,6 +35,7 @@ set CPP_SRCS=%CPP_SRCS% "%CIMGUI%\cimgui.cpp"
 set CPP_SRCS=%CPP_SRCS% "%BACKENDS%\imgui_impl_win32.cpp"
 set CPP_SRCS=%CPP_SRCS% "%BACKENDS%\imgui_impl_dx11.cpp"
 set CPP_SRCS=%CPP_SRCS% "%SRC_APP%\renderer.cpp"
+set CPP_SRCS=%CPP_SRCS% "%SRC_SVC%\audio_status.cpp"
 
 :: ── C sources (core + main) ───────────────────────────────────────
 set C_SRCS=
@@ -64,7 +65,7 @@ if %errorlevel% neq 0 (
 :: ── Link ───────────────────────────────────────────────────────────
 echo --- Linking ---
 set OBJS=%OUTDIR%\*.obj
-set LIBS=d3d11.lib dxgi.lib user32.lib gdi32.lib shell32.lib dwmapi.lib bthprops.lib
+set LIBS=d3d11.lib dxgi.lib user32.lib gdi32.lib shell32.lib dwmapi.lib bthprops.lib ole32.lib propsys.lib
 link /nologo /subsystem:windows /out:"%EXE%" %OUTDIR%\*.obj %LIBS%
 if %errorlevel% neq 0 (
     echo Link FAILED

@@ -17,6 +17,7 @@
 #include "renderer.h"
 #include "panels.h"
 #include "oa2dp_device.h"
+#include "oa2dp_audio_status.h"
 #include "oa2dp_log.h"
 
 #include <string.h>
@@ -100,6 +101,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
     oa2dp_log(OA2DP_LOG_INFO, "renderer initialized");
 
+    /* ── Audio status subsystem ─────────────────────────────────── */
+    if (oa2dp_audio_status_init() != 0)
+        oa2dp_log(OA2DP_LOG_WARN, "audio status init failed, endpoint data unavailable");
+
     /* ── Device enumeration ─────────────────────────────────────── */
     memset(&g_ui, 0, sizeof(g_ui));
     g_ui.selected = 0;
@@ -160,6 +165,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
     oa2dp_log(OA2DP_LOG_INFO, "shutting down");
     oa2dp_device_unregister_notify();
+    oa2dp_audio_status_shutdown();
     oa2dp_renderer_shutdown();
     DestroyWindow(hwnd);
     UnregisterClassW(wc.lpszClassName, wc.hInstance);
