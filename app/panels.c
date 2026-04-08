@@ -11,6 +11,7 @@
 #include "panels.h"
 #include "oa2dp_log.h"
 #include "oa2dp_config.h"
+#include "oa2dp_actions.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -182,16 +183,50 @@ static void draw_settings(OA2DP_UIState *ui)
 
     /* Actions */
     {
+        int busy = oa2dp_action_busy();
+        if (busy) igBeginDisabled(true);
+
         ImVec2_c btn = { 120, 0 };
-        if (igButton("Reconnect", btn)) {
-            oa2dp_log(OA2DP_LOG_INFO, "reconnect requested for '%s'",
-                      p->display_name);
-        }
+        if (igButton("Reconnect", btn))
+            oa2dp_action_reconnect_async(p->device_id);
         igSameLine(0, 8);
-        if (igButton("Reset", btn)) {
-            oa2dp_log(OA2DP_LOG_INFO, "reset requested for '%s'",
-                      p->display_name);
+        if (igButton("Reset", btn))
+            oa2dp_action_reset_async(p->device_id);
+
+        if (busy) {
+            igEndDisabled();
+            igSameLine(0, 8);
+            igText("Working...");
         }
+    }
+
+    igSeparator();
+
+    /* Service toggles */
+    {
+        int busy = oa2dp_action_busy();
+        if (busy) igBeginDisabled(true);
+
+        igText("Services");
+        ImVec2_c sbtn = { 80, 0 };
+
+        igText("AudioSink (A2DP)");
+        igSameLine(0, 8);
+        if (igButton("Enable##as", sbtn))
+            oa2dp_action_set_audiosink_async(p->device_id, 1);
+        igSameLine(0, 4);
+        if (igButton("Disable##as", sbtn))
+            oa2dp_action_set_audiosink_async(p->device_id, 0);
+
+        igText("Handsfree (HFP)");
+        igSameLine(0, 8);
+        if (igButton("Enable##hf", sbtn))
+            oa2dp_action_set_handsfree_async(p->device_id, 1);
+        igSameLine(0, 4);
+        if (igButton("Disable##hf", sbtn))
+            oa2dp_action_set_handsfree_async(p->device_id, 0);
+
+        if (busy) igEndDisabled();
     }
 }
 
