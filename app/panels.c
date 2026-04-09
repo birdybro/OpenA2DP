@@ -1315,8 +1315,9 @@ void oa2dp_panels_draw(OA2DP_UIState *ui)
 
     /* ── Top header: active stack indicator + Advanced Mode toggle.
      * Stack indicator is advanced-only (it's noise for the 99%
-     * audience).  The Advanced Mode checkbox is always visible so
-     * the user can toggle in either direction. */
+     * audience) and lives on the left.  The Advanced Mode checkbox
+     * is always visible and pinned to the right edge so the user
+     * can toggle in either direction. */
     {
         if (ui->advanced_mode) {
             char stack_label[64];
@@ -1335,8 +1336,26 @@ void oa2dp_panels_draw(OA2DP_UIState *ui)
                 col.x = 1.0f; col.y = 0.4f; col.z = 0.4f; col.w = 1.0f;  /* red */
             }
             igTextColored(col, "%s", stack_label);
-            igSameLine(0, 24);
+        } else {
+            /* Reserve a row so the checkbox below sits on its own
+             * line at a consistent vertical position. */
+            igDummy((ImVec2_c){1, 1});
         }
+
+        /* Pin "Advanced Mode" checkbox to the right edge.  Compute
+         * its width from the label + checkbox glyph + style padding,
+         * then SameLine to (cursor_x_now + remaining_avail - box_w). */
+        ImVec2_c text_size = igCalcTextSize("Advanced Mode", NULL, false, -1.0f);
+        ImGuiStyle *style = igGetStyle();
+        float box_w = text_size.x
+                    + igGetFrameHeight()           /* the check square */
+                    + style->ItemInnerSpacing.x    /* gap between them */
+                    + style->FramePadding.x * 2.0f;
+        ImVec2_c avail = igGetContentRegionAvail();
+        float cursor_x = igGetCursorPosX();
+        float target_x = cursor_x + avail.x - box_w;
+        if (target_x < cursor_x) target_x = cursor_x;
+        igSameLine(target_x, 0);
 
         bool adv = (bool)ui->advanced_mode;
         if (igCheckbox("Advanced Mode", &adv))
