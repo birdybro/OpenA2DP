@@ -15,6 +15,7 @@
 #include "oa2dp_actions.h"
 #include "oa2dp_driver_control.h"
 #include "oa2dp_log.h"
+#include "oa2dp_resource.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -29,6 +30,7 @@ static int g_added = 0;
 int oa2dp_tray_init(void *hwnd_void)
 {
     HWND hwnd = (HWND)hwnd_void;
+    HINSTANCE hinst = (HINSTANCE)GetModuleHandleW(NULL);
 
     memset(&g_nid, 0, sizeof(g_nid));
     g_nid.cbSize           = sizeof(g_nid);
@@ -36,8 +38,12 @@ int oa2dp_tray_init(void *hwnd_void)
     g_nid.uID              = 1;
     g_nid.uFlags           = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     g_nid.uCallbackMessage = OA2DP_WM_TRAY;
-    /* Default app icon — good enough until we ship a custom one. */
-    g_nid.hIcon            = LoadIconW(NULL, IDI_APPLICATION);
+    /* Embedded application icon — same artwork as the window class.
+     * Falls back to the generic Windows app icon if loading fails
+     * (shouldn't happen since the resource is built into the exe). */
+    g_nid.hIcon = LoadIconW(hinst, MAKEINTRESOURCEW(IDI_APP_ICON));
+    if (!g_nid.hIcon)
+        g_nid.hIcon = LoadIconW(NULL, IDI_APPLICATION);
     wcsncpy_s(g_nid.szTip, ARRAYSIZE(g_nid.szTip),
               L"OpenA2DP", _TRUNCATE);
 

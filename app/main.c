@@ -29,6 +29,7 @@
 #include "oa2dp_driver_control.h"
 #include "oa2dp_hfp_watchdog.h"
 #include "oa2dp_log.h"
+#include "oa2dp_resource.h"
 #include "oa2dp_stats.h"
 #include "oa2dp_tray.h"
 
@@ -200,13 +201,18 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
 {
     oa2dp_log(OA2DP_LOG_INFO, "OpenA2DP starting");
 
-    /* Register window class. */
+    /* Register window class.  hIcon (large) shows in alt-tab and
+     * the title bar; hIconSm (small) shows in the taskbar.  Both
+     * load the same resource — Windows picks the right size
+     * automatically. */
     WNDCLASSEXW wc = {0};
     wc.cbSize        = sizeof(wc);
     wc.style         = CS_CLASSDC;
     wc.lpfnWndProc   = wnd_proc;
-    wc.hInstance      = hInstance;
-    wc.lpszClassName  = L"OpenA2DP";
+    wc.hInstance     = hInstance;
+    wc.hIcon         = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_APP_ICON));
+    wc.hIconSm       = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_APP_ICON));
+    wc.lpszClassName = L"OpenA2DP";
     RegisterClassExW(&wc);
 
     /* Config dir is needed for window state load — initialize it

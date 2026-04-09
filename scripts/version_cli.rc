@@ -5,6 +5,10 @@
  */
 
 #include <winver.h>
+#include "oa2dp_resource.h"
+
+/* Embedded application icon (same artwork as the GUI binary). */
+IDI_APP_ICON ICON "icon.ico"
 
 #define OA2DP_VER_MAJOR 0
 #define OA2DP_VER_MINOR 4

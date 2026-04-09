@@ -141,3 +141,7 @@ Written in C with minimal C++ only where required (COM APIs, ImGui backends). Se
 ## License
 
 GPL-3.0. See [LICENSE](LICENSE).
+
+## Credits
+
+Application icon by [Ramy W.](https://www.flaticon.com/authors/ramy-w) on Flaticon.

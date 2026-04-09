@@ -99,15 +99,17 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-:: ── Compile VERSIONINFO resources ──────────────────────────────────
+:: ── Compile VERSIONINFO + ICON resources ──────────────────────────
 :: Per-binary so each .exe has its own OriginalFilename / etc.
+:: /I "%ROOT%\include" lets the .rc files include oa2dp_resource.h.
+:: /I "%ROOT%" lets them reference icon.ico via a relative path.
 echo --- Compiling resources ---
-rc /nologo /fo "%OUTDIR%\version_gui.res" "%~dp0version_gui.rc" >nul
+rc /nologo /I "%ROOT%\include" /I "%ROOT%" /fo "%OUTDIR%\version_gui.res" "%~dp0version_gui.rc" >nul
 if %errorlevel% neq 0 (
     echo GUI resource compile FAILED
     exit /b 1
 )
-rc /nologo /fo "%OUTDIR%\version_cli.res" "%~dp0version_cli.rc" >nul
+rc /nologo /I "%ROOT%\include" /I "%ROOT%" /fo "%OUTDIR%\version_cli.res" "%~dp0version_cli.rc" >nul
 if %errorlevel% neq 0 (
     echo CLI resource compile FAILED
     exit /b 1
