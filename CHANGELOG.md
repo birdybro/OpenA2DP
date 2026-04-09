@@ -8,6 +8,68 @@ versioning loosely follows [SemVer](https://semver.org/).
 
 Nothing yet.
 
+## [0.6.0] — 2026-04-09
+
+The "approachable defaults + eye candy" cycle.  Headline features:
+Advanced Mode toggle that hides the power-user surfaces from
+first-time users, a Reset Settings escape hatch, a real-time
+WASAPI loopback audio visualizer, live window resize, and a
+tighter optimization stack on the build.
+
+### Added
+
+- **Advanced Mode toggle** in the top-right of the header.
+  Default off.  When off, hides A2DP stack control, codec
+  editor, service toggles, watchdogs, capabilities, history,
+  and the diagnostic log — leaving only Reconnect / Reset and
+  a minimal status readout (connection state, battery, the
+  connect-but-silent warning).  Persisted in `window.ini`.
+- **Audio visualizer** — WASAPI loopback capture on the system
+  default render endpoint, on a background thread with its own
+  COM apartment.  Goertzel filter computes 16 log-spaced
+  frequency bands (60 Hz – 17 kHz), peak-hold + decay smoothed
+  for stable bars.  Renders as colored bars (cyan → green →
+  yellow → red gradient by amplitude) in its own child below
+  the device list, fills 100% of the child's content region.
+  Visible in both simple and advanced modes — works even with
+  no headphones connected, since it captures whatever Windows
+  is mixing.
+- **Reset All Settings to Defaults** button at the bottom of
+  the device list.  Confirm modal prevents accidental clicks.
+  Resets every device profile to its built-in defaults
+  (preserving `device_id` and `display_name`), writes them
+  back to disk, and snaps the main window back to its default
+  1440×900 rect.  Window snap is deferred to between frames
+  so `SetWindowPos` doesn't re-enter the renderer mid-draw.
+- **Live window resize** — `WM_SIZE`, `WM_PAINT`, and a
+  `WM_TIMER` driven from `WM_ENTERSIZEMOVE`/`WM_EXITSIZEMOVE`
+  all call a shared `render_one_frame` helper, so the window
+  contents reflow in real time during a border drag instead
+  of staying frozen until the modal resize loop exits.
+- **Minimum window size 880 × 232** enforced via
+  `WM_GETMINMAXINFO`, so the layout can't get crushed.
+
+### Changed
+
+- **Compiler/linker flags tightened** for smaller, faster
+  binaries: `/GL /Gy /MT /Zc:inline` (plus `/GR-` for C++)
+  and `/LTCG /OPT:REF /OPT:ICF /INCREMENTAL:NO` at link time.
+  Whole-program optimization, function-level linking, dead
+  code elimination, identical COMDAT folding.  `/MT` keeps
+  the binaries fully self-contained — no VC++ Redistributable
+  required on the target machine.
+- **Confirm modal centering** moved from
+  `GetMainViewport().WorkPos` (which drifted to wrong monitors
+  under ImGui's multi-viewport mode) to `GetWindowRect` of the
+  host HWND, with `ImGuiCond_Always` pivot so the modal
+  recenters against its true auto-resized dimensions instead
+  of collapsing on the first frame.
+- **Window placement** is now saved in `WM_CLOSE` before the
+  HWND is destroyed.  Closing via the X button previously
+  triggered `DestroyWindow` before the main loop's
+  `GetWindowPlacement` call could run, so the window size
+  never persisted across sessions.
+
 ## [0.5.0] — 2026-04-09
 
 Polish, observability, and cosmetics on top of the v0.4 Alt A2DP
@@ -238,7 +300,8 @@ reconnect/reset actions, INI profile persistence with
 auto-save, and the `docs/driver-evaluation.md` write-up
 deciding to stay in user-mode (no KMDF driver).
 
-[Unreleased]: https://github.com/birdybro/OpenA2DP/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/birdybro/OpenA2DP/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/birdybro/OpenA2DP/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/birdybro/OpenA2DP/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/birdybro/OpenA2DP/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/birdybro/OpenA2DP/compare/v0.2.0...v0.3.0
