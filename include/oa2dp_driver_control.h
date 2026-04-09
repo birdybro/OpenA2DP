@@ -83,6 +83,38 @@ const char *oa2dp_driver_state_label(OA2DP_ServiceState state);
  */
 int oa2dp_process_is_elevated(void);
 
+typedef enum OA2DP_StackTarget {
+    OA2DP_STACK_MICROSOFT = 0,
+    OA2DP_STACK_ALTERNATIVE
+} OA2DP_StackTarget;
+
+#include "oa2dp_device.h"
+
+/*
+ * Switch the active A2DP stack on a background thread.
+ *
+ * The worker performs three steps in order:
+ *   1. Stop every running service in `drivers` that doesn't belong to
+ *      the target stack.
+ *   2. Start every stopped service in `drivers` that does.
+ *   3. For each connected device in `devices`, run a synchronous
+ *      reconnect cycle so it re-binds to the new stack.
+ *
+ * Single-slot — only one switch can be in flight at a time.  Returns
+ * 0 if the worker was launched, -1 if busy or on error.  All progress
+ * is logged via oa2dp_log so the user can watch it from the log panel.
+ *
+ * Caller's `drivers` and `devices` pointers must remain valid for the
+ * lifetime of the worker.  In OpenA2DP they live in g_ui which is
+ * static for the process lifetime, so this is fine in practice.
+ */
+int oa2dp_stack_switch_async(OA2DP_StackTarget target,
+                             OA2DP_DriverList *drivers,
+                             OA2DP_DeviceList *devices);
+
+/* Returns 1 if a stack switch worker is currently running. */
+int oa2dp_stack_switch_busy(void);
+
 /*
  * Infer which A2DP stack is currently handling Bluetooth audio on
  * this machine, based on which services in the list are running.

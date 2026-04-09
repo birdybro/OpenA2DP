@@ -17,6 +17,7 @@
 #include <winsvc.h>
 
 #include "oa2dp_driver_control.h"
+#include "oa2dp_actions.h"
 #include "oa2dp_log.h"
 
 #include <stdlib.h>
@@ -436,4 +437,117 @@ int oa2dp_driver_stop(const char *service_name)
               "driver control: '%s' did not reach stopped state (now %s)",
               service_name, oa2dp_driver_state_label(final_state));
     return -1;
+}
+
+/* ── stack switch worker ────────────────────────────────────────────── */
+
+static volatile LONG g_switch_busy = 0;
+
+int oa2dp_stack_switch_busy(void)
+{
+    return (int)g_switch_busy;
+}
+
+typedef struct {
+    OA2DP_StackTarget  target;
+    OA2DP_DriverList  *drivers;
+    OA2DP_DeviceList  *devices;
+} SwitchParam;
+
+/* Returns 1 if `name` is the Microsoft BthA2dp driver. */
+static int is_microsoft_service(const char *name)
+{
+    return icontains_ascii(name, "btha2dp");
+}
+
+static DWORD WINAPI switch_thread(LPVOID param)
+{
+    SwitchParam *p = (SwitchParam *)param;
+    const char *target_name =
+        (p->target == OA2DP_STACK_MICROSOFT)
+            ? "Microsoft (BthA2dp)" : "Alternative A2DP Driver";
+
+    oa2dp_log(OA2DP_LOG_INFO, "stack switch: starting → %s", target_name);
+
+    /* ── Step 1: stop services that don't belong to the target ─── */
+    for (int i = 0; i < p->drivers->count; i++) {
+        OA2DP_A2dpService *svc = &p->drivers->services[i];
+        int wants_running =
+            (p->target == OA2DP_STACK_MICROSOFT)
+                ? is_microsoft_service(svc->name)
+                : !is_microsoft_service(svc->name);
+
+        if (!wants_running && svc->state == OA2DP_SVC_RUNNING) {
+            oa2dp_driver_stop(svc->name);
+            oa2dp_driver_refresh(p->drivers, i);
+        }
+    }
+
+    /* ── Step 2: start services that do belong to the target ──── */
+    for (int i = 0; i < p->drivers->count; i++) {
+        OA2DP_A2dpService *svc = &p->drivers->services[i];
+        int wants_running =
+            (p->target == OA2DP_STACK_MICROSOFT)
+                ? is_microsoft_service(svc->name)
+                : !is_microsoft_service(svc->name);
+
+        if (wants_running && svc->state != OA2DP_SVC_RUNNING) {
+            oa2dp_driver_start(svc->name);
+            oa2dp_driver_refresh(p->drivers, i);
+        }
+    }
+
+    /* ── Step 3: reconnect every connected device ─────────────── */
+    if (p->devices) {
+        for (int i = 0; i < p->devices->count; i++) {
+            const OA2DP_DeviceProfile *prof = &p->devices->profiles[i];
+            const OA2DP_DeviceStatus  *stat = &p->devices->statuses[i];
+            if (stat->connection != OA2DP_CONN_CONNECTED)
+                continue;
+
+            oa2dp_log(OA2DP_LOG_INFO,
+                      "stack switch: reconnecting '%s' on new stack",
+                      prof->display_name);
+            oa2dp_action_reconnect(prof->device_id);
+        }
+    }
+
+    oa2dp_log(OA2DP_LOG_INFO, "stack switch: complete (%s)", target_name);
+
+    free(p);
+    InterlockedExchange(&g_switch_busy, 0);
+    return 0;
+}
+
+int oa2dp_stack_switch_async(OA2DP_StackTarget target,
+                             OA2DP_DriverList *drivers,
+                             OA2DP_DeviceList *devices)
+{
+    if (!drivers) return -1;
+
+    if (InterlockedCompareExchange(&g_switch_busy, 1, 0) != 0) {
+        oa2dp_log(OA2DP_LOG_WARN,
+                  "stack switch: already in progress, ignoring request");
+        return -1;
+    }
+
+    SwitchParam *p = (SwitchParam *)malloc(sizeof(*p));
+    if (!p) {
+        InterlockedExchange(&g_switch_busy, 0);
+        return -1;
+    }
+    p->target  = target;
+    p->drivers = drivers;
+    p->devices = devices;
+
+    HANDLE h = CreateThread(NULL, 0, switch_thread, p, 0, NULL);
+    if (!h) {
+        oa2dp_log(OA2DP_LOG_ERROR,
+                  "stack switch: CreateThread failed (err=%lu)", GetLastError());
+        free(p);
+        InterlockedExchange(&g_switch_busy, 0);
+        return -1;
+    }
+    CloseHandle(h);
+    return 0;
 }

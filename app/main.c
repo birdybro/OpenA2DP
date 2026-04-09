@@ -28,6 +28,7 @@
 #include "oa2dp_driver_control.h"
 #include "oa2dp_hfp_watchdog.h"
 #include "oa2dp_log.h"
+#include "oa2dp_tray.h"
 
 #include <string.h>
 
@@ -108,6 +109,13 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg,
     case WM_SYSCOMMAND:
         if ((wparam & 0xFFF0) == SC_KEYMENU)
             return 0;
+        /* Hide to tray on minimize instead of taskbar-minimizing.
+         * The user can restore via the tray icon (double-click) or
+         * the tray menu's "Show OpenA2DP". */
+        if ((wparam & 0xFFF0) == SC_MINIMIZE) {
+            ShowWindow(hwnd, SW_HIDE);
+            return 0;
+        }
         break;
     case WM_DEVICECHANGE:
         if (wparam == DBT_DEVICEARRIVAL || wparam == DBT_DEVICEREMOVECOMPLETE) {
@@ -115,6 +123,16 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg,
             g_rescan_needed = 1;
         }
         return 0;
+    case OA2DP_WM_TRAY:
+        oa2dp_tray_handle_message(hwnd, &g_ui,
+                                  (unsigned int)wparam, (long)lparam);
+        return 0;
+    case WM_COMMAND:
+        if (oa2dp_tray_owns_command(LOWORD(wparam))) {
+            oa2dp_tray_handle_command(hwnd, &g_ui, LOWORD(wparam));
+            return 0;
+        }
+        break;
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;
@@ -214,6 +232,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     /* Register for device change notifications. */
     oa2dp_device_register_notify(hwnd);
 
+    /* System tray icon — adds OpenA2DP to the notification area with
+     * a right-click menu of common recovery actions. */
+    oa2dp_tray_init(hwnd);
+
     /* Timers. */
     DWORD last_refresh  = GetTickCount();
     DWORD last_save     = GetTickCount();
@@ -276,6 +298,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
     oa2dp_log(OA2DP_LOG_INFO, "shutting down");
     save_dirty_profiles();
+    oa2dp_tray_shutdown();
     oa2dp_device_unregister_notify();
     oa2dp_audio_status_shutdown();
     oa2dp_renderer_shutdown();

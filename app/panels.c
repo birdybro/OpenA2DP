@@ -70,6 +70,34 @@ static void draw_drivers_section(OA2DP_UIState *ui)
     }
 
     int elevated = oa2dp_process_is_elevated();
+    int switching = oa2dp_stack_switch_busy();
+
+    /* One-click stack switcher.  The worker stops the wrong-stack
+     * services, starts the right ones, and reconnects every connected
+     * device against the new stack — all on a background thread. */
+    {
+        bool can_switch = elevated && !switching;
+        if (!can_switch) igBeginDisabled(true);
+
+        ImVec2_c btn = { 130, 0 };
+        if (igButton("Use Microsoft", btn))
+            oa2dp_stack_switch_async(OA2DP_STACK_MICROSOFT,
+                                     &ui->drivers, &ui->devices);
+        igSameLine(0, 4);
+        if (igButton("Use Alternative", btn))
+            oa2dp_stack_switch_async(OA2DP_STACK_ALTERNATIVE,
+                                     &ui->drivers, &ui->devices);
+
+        if (!can_switch) igEndDisabled();
+
+        if (switching) {
+            igSameLine(0, 8);
+            ImVec4_c col = { 1.0f, 0.8f, 0.0f, 1.0f };
+            igTextColored(col, "switching...");
+        }
+    }
+
+    igSeparator();
 
     for (int i = 0; i < ui->drivers.count; i++) {
         OA2DP_A2dpService *svc = &ui->drivers.services[i];
@@ -92,13 +120,14 @@ static void draw_drivers_section(OA2DP_UIState *ui)
 
         ImVec2_c btn = { 60, 0 };
 
-        /* Buttons are state-aware AND elevation-aware: even when the
-         * service state would allow Start/Stop, both are greyed if the
-         * process isn't elevated, since the call would just fail with
-         * ACCESS_DENIED. */
-        bool can_start = elevated && (svc->state == OA2DP_SVC_STOPPED);
-        bool can_stop  = elevated && (svc->state == OA2DP_SVC_RUNNING ||
-                                      svc->state == OA2DP_SVC_PAUSED);
+        /* Buttons are state-aware, elevation-aware, AND switch-aware:
+         * blocked entirely while a stack switch is running so it can't
+         * race with the worker. */
+        bool can_start = elevated && !switching &&
+                         (svc->state == OA2DP_SVC_STOPPED);
+        bool can_stop  = elevated && !switching &&
+                         (svc->state == OA2DP_SVC_RUNNING ||
+                          svc->state == OA2DP_SVC_PAUSED);
 
         if (!can_start) igBeginDisabled(true);
         char start_id[80];
