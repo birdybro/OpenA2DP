@@ -19,6 +19,7 @@
 #include "oa2dp_driver_control.h"
 #include "oa2dp_actions.h"
 #include "oa2dp_log.h"
+#include "oa2dp_stats.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -474,6 +475,7 @@ static void do_stack_switch(OA2DP_StackTarget target,
             ? "Microsoft (BthA2dp)" : "Alternative A2DP Driver";
 
     oa2dp_log(OA2DP_LOG_INFO, "stack switch: starting → %s", target_name);
+    oa2dp_stats_inc_stack_switch();
 
     /* Step 1: stop services that don't belong to the target. */
     for (int i = 0; i < drivers->count; i++) {

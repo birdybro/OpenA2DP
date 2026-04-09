@@ -13,6 +13,8 @@
 #include "oa2dp_config.h"
 #include "oa2dp_actions.h"
 #include "oa2dp_driver_control.h"
+#include "oa2dp_history.h"
+#include "oa2dp_stats.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -188,6 +190,18 @@ static void draw_device_list(OA2DP_UIState *ui)
     igSeparator();
     igDummy((ImVec2_c){0, 4});
     draw_drivers_section(ui);
+
+    /* ── Activity counters ──────────────────────────────────────── */
+    igSeparator();
+    {
+        const OA2DP_Stats *st = oa2dp_stats_get();
+        igText("Activity");
+        igTextDisabled("Reconnects:    %ld", st->reconnects);
+        igTextDisabled("Heal trig/rec/fail: %ld / %ld / %ld",
+                       st->heal_triggers, st->heal_recoveries, st->heal_failures);
+        igTextDisabled("HFP watchdog:  %ld", st->hfp_watchdog);
+        igTextDisabled("Stack switches: %ld", st->stack_switches);
+    }
 
     igEndChild();
 }
@@ -424,11 +438,41 @@ static void draw_status(OA2DP_UIState *ui)
             igTableNextColumn(); igText("%s", s->endpoint_name);
         }
 
-        /* AudioSink/Handsfree install flags would go here, but
-         * BluetoothEnumerateInstalledServices blocks the UI thread
-         * for too long to call from this function — see the comment
-         * in service/device_enum.c.  Until that's reworked off-thread
-         * the install flags are not displayed. */
+        /* Battery (populated by background probe).  -1 = pending,
+         * -2 = device doesn't expose battery to Windows, 0..100 = real. */
+        if (s->battery_pct >= 0) {
+            igTableNextRow(0, 0);
+            igTableNextColumn(); igText("Battery");
+            igTableNextColumn();
+            ImVec4_c col;
+            if      (s->battery_pct >= 50) { col.x=0.2f; col.y=0.9f; col.z=0.2f; col.w=1.0f; }
+            else if (s->battery_pct >= 20) { col.x=1.0f; col.y=0.8f; col.z=0.0f; col.w=1.0f; }
+            else                            { col.x=1.0f; col.y=0.3f; col.z=0.3f; col.w=1.0f; }
+            igTextColored(col, "%d%%", s->battery_pct);
+        }
+
+        /* Installed-services flags (populated by background probe).
+         * -1 = not yet probed, treat as "unknown" and skip. */
+        if (s->audio_sink_installed >= 0) {
+            igTableNextRow(0, 0);
+            igTableNextColumn(); igText("AudioSink (A2DP)");
+            igTableNextColumn();
+            ImVec4_c on  = { 0.2f, 0.9f, 0.2f, 1.0f };
+            ImVec4_c off = { 0.6f, 0.6f, 0.6f, 1.0f };
+            igTextColored(s->audio_sink_installed ? on : off,
+                          "%s",
+                          s->audio_sink_installed ? "installed" : "not installed");
+        }
+        if (s->handsfree_installed >= 0) {
+            igTableNextRow(0, 0);
+            igTableNextColumn(); igText("Handsfree (HFP)");
+            igTableNextColumn();
+            ImVec4_c on  = { 1.0f, 0.7f, 0.0f, 1.0f }; /* yellow — usually unwanted */
+            ImVec4_c off = { 0.6f, 0.6f, 0.6f, 1.0f };
+            igTextColored(s->handsfree_installed ? on : off,
+                          "%s",
+                          s->handsfree_installed ? "installed" : "not installed");
+        }
 
         if (s->sample_rate > 0) {
             igTableNextRow(0, 0);
@@ -466,6 +510,33 @@ static void draw_status(OA2DP_UIState *ui)
         igTextColored(warn, "Connected but no audio endpoint visible to WASAPI.");
         igTextWrapped("This is the Windows 11 \"connected-but-silent\" bug. "
                       "Enable Auto-Heal in Settings, or click Reconnect.");
+    }
+
+    /* ── Connection history (persistent across runs) ────────────── */
+    igSeparator();
+    igText("Recent connection events");
+    {
+        #define HIST_LINES 12
+        #define HIST_LINE_LEN 64
+        static char hist[HIST_LINES * HIST_LINE_LEN];
+        int n = oa2dp_history_load(p->device_id, hist, HIST_LINES, HIST_LINE_LEN);
+        if (n == 0) {
+            igTextDisabled("(no history yet)");
+        } else {
+            ImVec2_c child_size = { 0, 120 };
+            igBeginChild_Str("##histscroll", child_size, ImGuiChildFlags_Borders,
+                             ImGuiWindowFlags_None);
+            for (int i = n - 1; i >= 0; i--) {
+                const char *line = hist + (size_t)i * HIST_LINE_LEN;
+                /* Color: green for connect, gray for disconnect. */
+                int is_conn = (strstr(line, "connected") != NULL &&
+                               strstr(line, "disconnected") == NULL);
+                ImVec4_c on  = { 0.5f, 0.9f, 0.5f, 1.0f };
+                ImVec4_c off = { 0.7f, 0.7f, 0.7f, 1.0f };
+                igTextColored(is_conn ? on : off, "%s", line);
+            }
+            igEndChild();
+        }
     }
 }
 

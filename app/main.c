@@ -23,11 +23,13 @@
 #include "panels.h"
 #include "oa2dp_cli.h"
 #include "oa2dp_device.h"
+#include "oa2dp_device_probe.h"
 #include "oa2dp_audio_status.h"
 #include "oa2dp_config.h"
 #include "oa2dp_driver_control.h"
 #include "oa2dp_hfp_watchdog.h"
 #include "oa2dp_log.h"
+#include "oa2dp_stats.h"
 #include "oa2dp_tray.h"
 
 #include <stdio.h>
@@ -190,6 +192,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     (void)hPrevInstance;
     (void)lpCmdLine;
     oa2dp_log_init();
+    oa2dp_stats_init();
     return run_gui(hInstance, nCmdShow);
 }
 
@@ -261,6 +264,11 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
     save_new_profiles();
     snapshot_profiles();
 
+    /* Kick off the slow-Bluetooth-API probe (installed services +
+     * battery) on a background thread.  Results trickle into the
+     * status struct over the next few seconds. */
+    oa2dp_device_probe_start(&g_ui.devices);
+
     if (g_ui.devices.count == 0)
         oa2dp_log(OA2DP_LOG_WARN, "no Bluetooth audio devices found");
 
@@ -301,6 +309,7 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
             oa2dp_device_scan(&g_ui.devices);
             save_new_profiles();
             snapshot_profiles();
+            oa2dp_device_probe_start(&g_ui.devices);
             if (g_ui.selected >= g_ui.devices.count)
                 g_ui.selected = (g_ui.devices.count > 0) ? 0 : -1;
             if (g_ui.devices.count != prev_count)

@@ -16,6 +16,7 @@
 #include "oa2dp_hfp_watchdog.h"
 #include "oa2dp_actions.h"
 #include "oa2dp_log.h"
+#include "oa2dp_stats.h"
 
 void oa2dp_hfp_watchdog_tick(const OA2DP_DeviceList *list)
 {
@@ -39,6 +40,7 @@ void oa2dp_hfp_watchdog_tick(const OA2DP_DeviceList *list)
             oa2dp_log(OA2DP_LOG_DEBUG,
                       "hfp watchdog: re-disabling Handsfree on '%s'",
                       prof->display_name);
+            oa2dp_stats_inc_hfp_watchdog();
             fired++;
 
             /* The actions module is single-slot — only one outstanding

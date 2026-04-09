@@ -18,6 +18,7 @@
 #include "oa2dp_config.h"
 #include "oa2dp_audio_status.h"
 #include "oa2dp_auto_heal.h"
+#include "oa2dp_history.h"
 #include "oa2dp_log.h"
 
 #include <stdio.h>
@@ -146,6 +147,10 @@ int oa2dp_device_scan(OA2DP_DeviceList *list)
         /* Start with safe defaults. */
         oa2dp_profile_defaults(prof);
         memset(stat, 0, sizeof(*stat));
+        /* Sentinel values for fields the background probe will fill. */
+        stat->audio_sink_installed = -1;
+        stat->handsfree_installed  = -1;
+        stat->battery_pct          = -1;
 
         /* Device ID (Bluetooth address). */
         format_bt_address(device_info.Address,
@@ -246,10 +251,12 @@ int oa2dp_device_refresh_status(OA2DP_DeviceList *list)
                                    : OA2DP_CONN_DISCONNECTED;
 
             if (stat->connection != prev) {
+                const char *state_label =
+                    stat->connection == OA2DP_CONN_CONNECTED
+                        ? "connected" : "disconnected";
                 oa2dp_log(OA2DP_LOG_INFO, "status: %s is now %s",
-                          prof->display_name,
-                          stat->connection == OA2DP_CONN_CONNECTED
-                              ? "connected" : "disconnected");
+                          prof->display_name, state_label);
+                oa2dp_history_append(prof->device_id, state_label);
 
                 if (stat->connection == OA2DP_CONN_CONNECTED) {
                     /* See note in oa2dp_device_scan: codec / SBC fields

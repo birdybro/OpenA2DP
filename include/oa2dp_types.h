@@ -142,9 +142,14 @@ typedef struct OA2DP_DeviceStatus {
      * BluetoothEnumerateInstalledServices.  These reflect whether
      * the service is *installed* on the device record, not whether
      * it's currently the active route — Windows does not expose the
-     * latter in user mode. */
+     * latter in user mode.  -1 means "not yet probed". */
     int audio_sink_installed;
     int handsfree_installed;
+
+    /* Battery percentage from DEVPKEY_Bluetooth_Battery, populated
+     * by the background probe.  -1 = not probed yet, -2 = device
+     * doesn't expose a battery property to Windows. */
+    int battery_pct;
 } OA2DP_DeviceStatus;
 
 /* ── Single log entry ───────────────────────────────────────────────── */

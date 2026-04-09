@@ -23,6 +23,7 @@
 #include "oa2dp_actions.h"
 #include "oa2dp_audio_status.h"
 #include "oa2dp_log.h"
+#include "oa2dp_stats.h"
 #include "oa2dp_tray.h"
 
 #include <stdio.h>
@@ -69,6 +70,7 @@ static DWORD WINAPI heal_thread(LPVOID param)
     HealParam *p = (HealParam *)param;
 
     oa2dp_log(OA2DP_LOG_INFO, "auto-heal: starting check for %s", p->device_id);
+    oa2dp_stats_inc_heal_trigger();
 
     /* Give Windows a chance to bring up the endpoint on its own. */
     Sleep(HEAL_INITIAL_SETTLE_MS);
@@ -87,6 +89,7 @@ static DWORD WINAPI heal_thread(LPVOID param)
                 /* Real recovery — the bug fired and we fixed it.
                  * Healthy connects (attempt == 1) don't notify since
                  * they'd be too noisy. */
+                oa2dp_stats_inc_heal_recovery();
                 char body[256];
                 snprintf(body, sizeof(body),
                          "Recovered audio endpoint for %s after %d attempt(s).",
@@ -125,6 +128,7 @@ static DWORD WINAPI heal_thread(LPVOID param)
         oa2dp_log(OA2DP_LOG_ERROR,
                   "auto-heal: gave up on %s after %d attempt(s) — endpoint never appeared",
                   p->device_id, HEAL_MAX_ATTEMPTS);
+        oa2dp_stats_inc_heal_failure();
         char body[256];
         snprintf(body, sizeof(body),
                  "Could not recover audio for %s after %d attempt(s). "

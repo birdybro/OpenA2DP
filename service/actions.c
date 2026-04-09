@@ -15,6 +15,7 @@
 
 #include "oa2dp_actions.h"
 #include "oa2dp_log.h"
+#include "oa2dp_stats.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -152,10 +153,12 @@ int oa2dp_action_reconnect(const char *device_id)
 
     int rc = toggle_service(&info, &GUID_AudioSink, "AudioSink", name);
 
-    if (rc == 0)
+    if (rc == 0) {
         oa2dp_log(OA2DP_LOG_INFO, "action: reconnect completed for '%s'", name);
-    else
+        oa2dp_stats_inc_reconnect();
+    } else {
         oa2dp_log(OA2DP_LOG_ERROR, "action: reconnect failed for '%s'", name);
+    }
 
     return rc;
 }
