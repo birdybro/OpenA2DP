@@ -78,6 +78,39 @@ extern "C" {
 int oa2dp_altdriver_read_current(const char *device_id,
                                  OA2DP_DeviceStatus *status);
 
+/*
+ * Read the Devices\Next\<addr> subkey for the given device and
+ * decode it into the snap_* fields of `status`.  Sets
+ * status->alt_snapshot_valid = 1 on success.  Used by the settings
+ * panel as the "last applied" baseline for dirty detection.
+ *
+ * Returns 0 on success, -1 if the key doesn't exist.  Safe from
+ * any thread.  Read-only.
+ */
+int oa2dp_altdriver_read_next(const char *device_id,
+                              OA2DP_DeviceStatus *status);
+
+/*
+ * Write the codec-relevant fields of `profile` to the
+ * Devices\Next\<addr> subkey.  Encodes enums back to the bitfield
+ * positions documented at the top of this header.  Per-key writes
+ * (RegSetValueExW), so unrelated values like LDAC, aptX, and
+ * VolumeLevel in the same subkey are preserved.
+ *
+ * After this call the user must physically reconnect the device
+ * (turn off and on, or call oa2dp_action_reconnect) for the new
+ * Next values to take effect — the driver only consults Next at
+ * AVDTP negotiation time.
+ *
+ * Requires the process to be running elevated; non-admin writes
+ * will fail with ERROR_ACCESS_DENIED, which is logged with an
+ * explicit hint.
+ *
+ * Returns 0 on success, -1 on any failure.
+ */
+int oa2dp_altdriver_write_next(const char *device_id,
+                               const OA2DP_DeviceProfile *profile);
+
 #ifdef __cplusplus
 }
 #endif

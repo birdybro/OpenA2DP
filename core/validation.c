@@ -42,6 +42,14 @@ void oa2dp_profile_defaults(OA2DP_DeviceProfile *p)
     p->auto_reduce_bitpool  = 1;
     p->auto_heal_enabled    = 0;    /* opt-in: user enables per device once verified */
     p->hfp_watchdog_enabled = 0;    /* opt-in: keeps Handsfree disabled for headphones-only devices */
+
+    /* AAC defaults */
+    p->aac_bitrate_kbps     = 256;  /* common high-quality default */
+    p->aac_allow_stereo     = 1;
+    p->aac_allow_mono       = 0;
+    p->aac_allow_44_1khz    = 1;
+    p->aac_allow_48khz      = 1;
+    p->abr_enable           = 1;    /* most modern devices benefit from ABR */
 }
 
 void oa2dp_profile_validate(OA2DP_DeviceProfile *p)
@@ -68,6 +76,22 @@ void oa2dp_profile_validate(OA2DP_DeviceProfile *p)
     p->auto_reduce_bitpool = clamp_bool(p->auto_reduce_bitpool);
     p->auto_heal_enabled    = clamp_bool(p->auto_heal_enabled);
     p->hfp_watchdog_enabled = clamp_bool(p->hfp_watchdog_enabled);
+
+    /* AAC clamps */
+    p->aac_allow_stereo  = clamp_bool(p->aac_allow_stereo);
+    p->aac_allow_mono    = clamp_bool(p->aac_allow_mono);
+    p->aac_allow_44_1khz = clamp_bool(p->aac_allow_44_1khz);
+    p->aac_allow_48khz   = clamp_bool(p->aac_allow_48khz);
+    p->abr_enable        = clamp_bool(p->abr_enable);
+    if (!p->aac_allow_stereo && !p->aac_allow_mono)
+        p->aac_allow_stereo = 1;
+    if (!p->aac_allow_44_1khz && !p->aac_allow_48khz)
+        p->aac_allow_48khz = 1;
+    /* AAC bitrate range: 0 (sentinel) or 64..320 kbps. */
+    if (p->aac_bitrate_kbps != 0) {
+        if (p->aac_bitrate_kbps < 64)  p->aac_bitrate_kbps = 64;
+        if (p->aac_bitrate_kbps > 320) p->aac_bitrate_kbps = 320;
+    }
 
     /* At least one channel mode must be allowed. */
     if (!p->allow_mono && !p->allow_stereo)

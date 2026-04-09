@@ -212,6 +212,11 @@ static DWORD WINAPI probe_thread(LPVOID param)
          * doesn't know about. */
         oa2dp_altdriver_read_current(prof->device_id, stat);
 
+        /* Also read the Next subkey into the snapshot fields so the
+         * settings panel can detect "unsaved changes".  Same no-op
+         * behavior on non-Alt-A2DP machines. */
+        oa2dp_altdriver_read_next(prof->device_id, stat);
+
         oa2dp_log(OA2DP_LOG_DEBUG,
                   "device probe: %s -> sink=%d hfp=%d batt=%d codec=%d",
                   prof->device_id, audio_sink, handsfree, batt,

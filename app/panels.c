@@ -12,6 +12,7 @@
 #include "oa2dp_log.h"
 #include "oa2dp_config.h"
 #include "oa2dp_actions.h"
+#include "oa2dp_altdriver_config.h"
 #include "oa2dp_driver_control.h"
 #include "oa2dp_history.h"
 #include "oa2dp_stats.h"
@@ -216,60 +217,59 @@ static void draw_settings(OA2DP_UIState *ui)
     }
 
     OA2DP_DeviceProfile *p = &ui->devices.profiles[ui->selected];
+    OA2DP_DeviceStatus  *s = &ui->devices.statuses[ui->selected];
 
     igText("Profile: %s", p->display_name);
     igSeparator();
 
-    /* Codec */
+    /* ── Codec settings (Alternative A2DP Driver only) ──────────────
+     *
+     * The codec/SBC/AAC parameters here only have any effect when
+     * the device is on the Alternative A2DP Driver stack.  We
+     * detect that via s->alt_snapshot_valid (set by the device
+     * probe when it successfully read Next\<addr>).
+     *
+     * On the Microsoft stack the whole section is greyed out with
+     * an explanation that those settings are unenforceable. */
+    int codec_editable = s->alt_snapshot_valid;
+    int elevated = oa2dp_process_is_elevated();
+
+    igText("Codec Settings");
+    if (!codec_editable) {
+        ImVec4_c warn = { 1.0f, 0.7f, 0.0f, 1.0f };
+        igTextColored(warn,
+            "Microsoft stack ignores these — switch to Alt A2DP Driver to apply.");
+    }
+
+    if (!codec_editable) igBeginDisabled(true);
+
+    /* Codec selector — only offer SBC and AAC, not "Unknown" which
+     * the underlying enum has as index 0 for "we don't know what's
+     * negotiated yet". */
     {
-        int codec = (int)p->preferred_codec;
+        static const char *choices[] = { "SBC", "AAC" };
+        int idx = (p->preferred_codec == OA2DP_CODEC_AAC) ? 1 : 0;
         igSetNextItemWidth(150);
-        if (igCombo_Str_arr("Codec", &codec, codec_labels, OA2DP_CODEC_COUNT, -1))
-            p->preferred_codec = (OA2DP_CodecType)codec;
+        if (igCombo_Str_arr("Codec", &idx, choices, 2, -1))
+            p->preferred_codec =
+                (idx == 1) ? OA2DP_CODEC_AAC : OA2DP_CODEC_SBC;
     }
 
-    igSeparator();
-
-    /* Channel modes */
-    igText("Channels");
-    {
-        bool mono = (bool)p->allow_mono;
-        bool stereo = (bool)p->allow_stereo;
-        igCheckbox("Allow Mono", &mono);
-        igSameLine(0, 16);
-        igCheckbox("Allow Stereo", &stereo);
-        p->allow_mono = mono;
-        p->allow_stereo = stereo;
-    }
-
-    /* Sample rates */
-    igText("Sample Rates");
-    {
-        bool r16 = (bool)p->allow_16khz;
-        bool r32 = (bool)p->allow_32khz;
-        bool r44 = (bool)p->allow_44_1khz;
-        bool r48 = (bool)p->allow_48khz;
-        igCheckbox("16 kHz", &r16);
-        igSameLine(0, 10);
-        igCheckbox("32 kHz", &r32);
-        igSameLine(0, 10);
-        igCheckbox("44.1 kHz", &r44);
-        igSameLine(0, 10);
-        igCheckbox("48 kHz", &r48);
-        p->allow_16khz   = r16;
-        p->allow_32khz   = r32;
-        p->allow_44_1khz = r44;
-        p->allow_48khz   = r48;
-    }
-
-    igSeparator();
-
-    /* SBC parameters (only relevant for SBC codec) */
-    {
-        bool sbc_disabled = (p->preferred_codec != OA2DP_CODEC_SBC);
-        if (sbc_disabled) igBeginDisabled(true);
-
-        igText("SBC Parameters");
+    /* Codec-specific UI */
+    if (p->preferred_codec == OA2DP_CODEC_SBC) {
+        igText("Sample Rates");
+        {
+            bool r16 = (bool)p->allow_16khz;
+            bool r32 = (bool)p->allow_32khz;
+            bool r44 = (bool)p->allow_44_1khz;
+            bool r48 = (bool)p->allow_48khz;
+            igCheckbox("16 kHz", &r16);   igSameLine(0, 10);
+            igCheckbox("32 kHz", &r32);   igSameLine(0, 10);
+            igCheckbox("44.1 kHz", &r44); igSameLine(0, 10);
+            igCheckbox("48 kHz", &r48);
+            p->allow_16khz = r16; p->allow_32khz = r32;
+            p->allow_44_1khz = r44; p->allow_48khz = r48;
+        }
 
         int sm = (int)p->stereo_mode;
         igSetNextItemWidth(150);
@@ -291,27 +291,95 @@ static void draw_settings(OA2DP_UIState *ui)
         if (igCombo_Str_arr("Subbands", &sb, subband_labels, OA2DP_SUBBANDS_COUNT, -1))
             p->subbands = (OA2DP_Subbands)sb;
 
-        igSeparator();
-
-        /* Bitpool */
+        igSetNextItemWidth(200);
+        igSliderInt("Max Bitpool", &p->bitpool, 2, 250, "%d", 0);
+    } else if (p->preferred_codec == OA2DP_CODEC_AAC) {
+        igText("AAC Channels");
         {
-            bool ovr = (bool)p->override_bitpool;
-            igCheckbox("Override Bitpool", &ovr);
-            p->override_bitpool = ovr;
-
-            if (!ovr) igBeginDisabled(true);
-            igSetNextItemWidth(200);
-            igSliderInt("Bitpool", &p->bitpool, 2, 250, "%d", 0);
-            if (!ovr) igEndDisabled();
+            bool ast = (bool)p->aac_allow_stereo;
+            bool amo = (bool)p->aac_allow_mono;
+            igCheckbox("Allow Stereo##aac", &ast);
+            igSameLine(0, 16);
+            igCheckbox("Allow Mono##aac", &amo);
+            p->aac_allow_stereo = ast;
+            p->aac_allow_mono   = amo;
         }
-
+        igText("AAC Sample Rates");
         {
-            bool ar = (bool)p->auto_reduce_bitpool;
-            igCheckbox("Auto-Reduce Bitpool", &ar);
-            p->auto_reduce_bitpool = ar;
+            bool r44 = (bool)p->aac_allow_44_1khz;
+            bool r48 = (bool)p->aac_allow_48khz;
+            igCheckbox("44.1 kHz##aac", &r44);
+            igSameLine(0, 16);
+            igCheckbox("48 kHz##aac", &r48);
+            p->aac_allow_44_1khz = r44;
+            p->aac_allow_48khz   = r48;
         }
+        igSetNextItemWidth(200);
+        /* 0 = "device default" sentinel; otherwise 64..320 kbps. */
+        if (p->aac_bitrate_kbps == 0) p->aac_bitrate_kbps = 256;
+        igSliderInt("AAC Bitrate (kbps)", &p->aac_bitrate_kbps, 64, 320, "%d", 0);
+    }
 
-        if (sbc_disabled) igEndDisabled();
+    /* ABR Enable applies to both codecs. */
+    {
+        bool abr = (bool)p->abr_enable;
+        igCheckbox("Adaptive Bit Rate (ABR)", &abr);
+        p->abr_enable = abr;
+    }
+
+    if (!codec_editable) igEndDisabled();
+
+    /* ── Dirty detection & Apply ────────────────────────────────── */
+    if (codec_editable) {
+        int dirty =
+            (p->preferred_codec    != s->snap_preferred_codec) ||
+            (p->allow_16khz        != s->snap_allow_16khz) ||
+            (p->allow_32khz        != s->snap_allow_32khz) ||
+            (p->allow_44_1khz      != s->snap_allow_44_1khz) ||
+            (p->allow_48khz        != s->snap_allow_48khz) ||
+            (p->stereo_mode        != s->snap_stereo_mode) ||
+            (p->block_size         != s->snap_block_size) ||
+            (p->allocation_method  != s->snap_allocation_method) ||
+            (p->subbands           != s->snap_subbands) ||
+            (p->bitpool            != s->snap_bitpool) ||
+            (p->aac_bitrate_kbps   != s->snap_aac_bitrate_kbps) ||
+            (p->aac_allow_stereo   != s->snap_aac_allow_stereo) ||
+            (p->aac_allow_mono     != s->snap_aac_allow_mono) ||
+            (p->aac_allow_44_1khz  != s->snap_aac_allow_44_1khz) ||
+            (p->aac_allow_48khz    != s->snap_aac_allow_48khz) ||
+            (p->abr_enable         != s->snap_abr_enable);
+
+        if (dirty) {
+            ImVec4_c warn = { 1.0f, 0.8f, 0.0f, 1.0f };
+            igTextColored(warn,
+                "Unsaved changes — click Apply to push to driver, "
+                "then reconnect the device for them to take effect.");
+            if (!elevated) {
+                igTextDisabled(
+                    "(Apply requires running OpenA2DP as Administrator)");
+            }
+
+            int can_apply = elevated;
+            if (!can_apply) igBeginDisabled(true);
+
+            ImVec2_c btn = { 100, 0 };
+            if (igButton("Apply", btn)) {
+                if (oa2dp_altdriver_write_next(p->device_id, p) == 0) {
+                    /* Refresh snapshot from registry so dirty clears. */
+                    oa2dp_altdriver_read_next(p->device_id, s);
+                }
+            }
+            igSameLine(0, 6);
+            ImVec2_c btn_long = { 160, 0 };
+            if (igButton("Apply & Reconnect", btn_long)) {
+                if (oa2dp_altdriver_write_next(p->device_id, p) == 0) {
+                    oa2dp_altdriver_read_next(p->device_id, s);
+                    oa2dp_action_reconnect_async(p->device_id);
+                }
+            }
+
+            if (!can_apply) igEndDisabled();
+        }
     }
 
     igSeparator();

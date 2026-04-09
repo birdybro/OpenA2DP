@@ -115,6 +115,18 @@ typedef struct OA2DP_DeviceProfile {
     int auto_reduce_bitpool;
     int auto_heal_enabled;   /* if set, auto-reconnect when device connects but no audio endpoint appears */
     int hfp_watchdog_enabled; /* if set, periodically re-disable Handsfree to prevent it being turned back on */
+
+    /* AAC parameters (used when preferred_codec is OA2DP_CODEC_AAC and
+     * the device is on the Alternative A2DP Driver stack). */
+    int aac_bitrate_kbps;    /* 0 = use device default sentinel */
+    int aac_allow_stereo;    /* 1 = offer 2-channel in negotiation */
+    int aac_allow_mono;      /* 1 = offer 1-channel in negotiation */
+    int aac_allow_44_1khz;
+    int aac_allow_48khz;
+
+    /* Adaptive Bit Rate flag.  Applies to both SBC and AAC under
+     * Alternative A2DP Driver. */
+    int abr_enable;
 } OA2DP_DeviceProfile;
 
 /* ── Runtime device status (read-only, from system) ─────────────────── */
@@ -158,6 +170,28 @@ typedef struct OA2DP_DeviceStatus {
      * silent.  Distinct from estimated_bitrate_kbps which is the
      * post-decode WASAPI mix-format rate. */
     int codec_bitrate_kbps;
+
+    /* Snapshot of the codec-relevant profile fields the LAST time we
+     * read or wrote Alternative A2DP Driver's Devices\Next\<addr>
+     * subkey.  Used by the settings panel to detect "unsaved
+     * changes" — a profile field that differs from this snapshot
+     * means the user has edited it but we haven't pushed the change
+     * to the driver yet.
+     *
+     * alt_snapshot_valid is 1 once we've successfully read Next at
+     * least once for this device.  Stays 0 on machines without
+     * Alternative A2DP Driver, in which case the dirty check is
+     * never meaningful (the codec settings are unenforceable on the
+     * Microsoft stack anyway). */
+    int alt_snapshot_valid;
+    int snap_preferred_codec;
+    int snap_allow_44_1khz, snap_allow_48khz, snap_allow_32khz, snap_allow_16khz;
+    int snap_stereo_mode, snap_block_size, snap_allocation_method, snap_subbands;
+    int snap_bitpool;
+    int snap_aac_bitrate_kbps;
+    int snap_aac_allow_stereo, snap_aac_allow_mono;
+    int snap_aac_allow_44_1khz, snap_aac_allow_48khz;
+    int snap_abr_enable;
 } OA2DP_DeviceStatus;
 
 /* ── Single log entry ───────────────────────────────────────────────── */

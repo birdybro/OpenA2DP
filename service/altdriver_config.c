@@ -13,6 +13,7 @@
 #include <windows.h>
 
 #include "oa2dp_altdriver_config.h"
+#include "oa2dp_log.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -207,5 +208,226 @@ int oa2dp_altdriver_read_current(const char *device_id,
         }
     }
 
+    return 0;
+}
+
+/* ── read Next subkey into snapshot ─────────────────────────────────── */
+
+int oa2dp_altdriver_read_next(const char *device_id,
+                              OA2DP_DeviceStatus *status)
+{
+    if (!device_id || !status) return -1;
+
+    char addr[20];
+    if (format_addr_for_registry(device_id, addr, sizeof(addr)) != 0)
+        return -1;
+
+    wchar_t path[256];
+    _snwprintf_s(path, 256, _TRUNCATE,
+        L"SYSTEM\\CurrentControlSet\\Services\\AltA2DP"
+        L"\\Parameters\\Devices\\Next\\%hs", addr);
+
+    HKEY h = NULL;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, path, 0, KEY_READ, &h)
+        != ERROR_SUCCESS)
+        return -1;
+
+    DWORD codec = 0, sbc_chmode = 0, sbc_freq = 0, sbc_alloc = 0;
+    DWORD sbc_subbands = 0, sbc_blocklen = 0, sbc_max_bp = 0;
+    DWORD aac_chmode = 0, aac_freq = 0, aac_bitrate = 0;
+    DWORD abr = 0;
+
+    read_dword(h, L"Codec",                &codec);
+    read_dword(h, L"SbcChannelMode",       &sbc_chmode);
+    read_dword(h, L"SbcSamplingFrequency", &sbc_freq);
+    read_dword(h, L"SbcAllocationMethod",  &sbc_alloc);
+    read_dword(h, L"SbcSubbands",          &sbc_subbands);
+    read_dword(h, L"SbcBlockLength",       &sbc_blocklen);
+    read_dword(h, L"SbcMaximumBitpool",    &sbc_max_bp);
+    read_dword(h, L"AacChannelMode",       &aac_chmode);
+    read_dword(h, L"AacSamplingFrequency", &aac_freq);
+    read_dword(h, L"AacBitrate",           &aac_bitrate);
+    read_dword(h, L"AbrEnable",            &abr);
+    RegCloseKey(h);
+
+    /* Decode codec preference. */
+    int cb = lowest_set_bit(codec);
+    status->snap_preferred_codec =
+        (cb == 1) ? OA2DP_CODEC_AAC : OA2DP_CODEC_SBC;
+
+    /* SBC channel mode (single bit chosen by user / driver). */
+    {
+        int b = lowest_set_bit(sbc_chmode);
+        if      (b == 0) status->snap_stereo_mode = OA2DP_STEREO_JOINT;
+        else if (b == 1) status->snap_stereo_mode = OA2DP_STEREO_STEREO;
+        else if (b == 2) status->snap_stereo_mode = OA2DP_STEREO_DUAL_CHANNEL;
+        else             status->snap_stereo_mode = OA2DP_STEREO_JOINT;
+    }
+    /* SBC sample-rate bitfield (multi-bit allowed). */
+    status->snap_allow_48khz   = (sbc_freq & 0x1) ? 1 : 0;
+    status->snap_allow_44_1khz = (sbc_freq & 0x2) ? 1 : 0;
+    status->snap_allow_32khz   = (sbc_freq & 0x4) ? 1 : 0;
+    status->snap_allow_16khz   = (sbc_freq & 0x8) ? 1 : 0;
+    {
+        int b = lowest_set_bit(sbc_alloc);
+        status->snap_allocation_method =
+            (b == 1) ? OA2DP_ALLOC_SNR : OA2DP_ALLOC_LOUDNESS;
+    }
+    {
+        int b = lowest_set_bit(sbc_subbands);
+        status->snap_subbands = (b == 1) ? OA2DP_SUBBANDS_4 : OA2DP_SUBBANDS_8;
+    }
+    {
+        int b = lowest_set_bit(sbc_blocklen);
+        if      (b == 0) status->snap_block_size = OA2DP_BLOCK_16;
+        else if (b == 1) status->snap_block_size = OA2DP_BLOCK_12;
+        else if (b == 2) status->snap_block_size = OA2DP_BLOCK_8;
+        else if (b == 3) status->snap_block_size = OA2DP_BLOCK_4;
+        else             status->snap_block_size = OA2DP_BLOCK_16;
+    }
+    status->snap_bitpool = (int)sbc_max_bp;
+
+    /* AAC fields. */
+    status->snap_aac_allow_stereo = (aac_chmode & (1u << 2)) ? 1 : 0;
+    status->snap_aac_allow_mono   = (aac_chmode & (1u << 3)) ? 1 : 0;
+    status->snap_aac_allow_48khz   = (aac_freq & (1u << 3)) ? 1 : 0;
+    status->snap_aac_allow_44_1khz = (aac_freq & (1u << 4)) ? 1 : 0;
+
+    /* AacBitrate: 0xFFFFFFFE is the "use default" sentinel.  Treat
+     * it (and 0) as profile-side bitrate 0. */
+    if (aac_bitrate == 0 || aac_bitrate == 0xFFFFFFFE)
+        status->snap_aac_bitrate_kbps = 0;
+    else
+        status->snap_aac_bitrate_kbps = (int)(aac_bitrate / 1000);
+
+    status->snap_abr_enable = (abr != 0) ? 1 : 0;
+
+    status->alt_snapshot_valid = 1;
+    return 0;
+}
+
+/* ── write Next subkey from profile ─────────────────────────────────── */
+
+static int write_dword(HKEY h, const wchar_t *name, DWORD value)
+{
+    return (RegSetValueExW(h, name, 0, REG_DWORD,
+                           (const BYTE *)&value, sizeof(value))
+            == ERROR_SUCCESS) ? 0 : -1;
+}
+
+int oa2dp_altdriver_write_next(const char *device_id,
+                               const OA2DP_DeviceProfile *profile)
+{
+    if (!device_id || !profile) return -1;
+
+    char addr[20];
+    if (format_addr_for_registry(device_id, addr, sizeof(addr)) != 0)
+        return -1;
+
+    wchar_t path[256];
+    _snwprintf_s(path, 256, _TRUNCATE,
+        L"SYSTEM\\CurrentControlSet\\Services\\AltA2DP"
+        L"\\Parameters\\Devices\\Next\\%hs", addr);
+
+    HKEY h = NULL;
+    LONG open_rc = RegOpenKeyExW(HKEY_LOCAL_MACHINE, path, 0,
+                                 KEY_READ | KEY_WRITE, &h);
+    if (open_rc != ERROR_SUCCESS) {
+        if (open_rc == ERROR_ACCESS_DENIED) {
+            oa2dp_log(OA2DP_LOG_ERROR,
+                      "altdriver write: ACCESS DENIED for %s — "
+                      "relaunch OpenA2DP as Administrator",
+                      device_id);
+        } else {
+            oa2dp_log(OA2DP_LOG_ERROR,
+                      "altdriver write: open Next\\%s failed (err=%ld)",
+                      device_id, open_rc);
+        }
+        return -1;
+    }
+
+    /* Codec field: bit 0 = SBC, bit 1 = AAC.  Set just the chosen one. */
+    DWORD codec_mask = (profile->preferred_codec == OA2DP_CODEC_AAC)
+                           ? (1u << 1) : (1u << 0);
+    write_dword(h, L"Codec", codec_mask);
+
+    /* SBC channel mode — single bit per enum value. */
+    DWORD sbc_chmode = 0;
+    switch (profile->stereo_mode) {
+    case OA2DP_STEREO_JOINT:        sbc_chmode = 1u << 0; break;
+    case OA2DP_STEREO_STEREO:       sbc_chmode = 1u << 1; break;
+    case OA2DP_STEREO_DUAL_CHANNEL: sbc_chmode = 1u << 2; break;
+    default:                        sbc_chmode = 1u << 0; break;
+    }
+    write_dword(h, L"SbcChannelMode", sbc_chmode);
+
+    /* SBC sample-rate bitfield: multiple allowed simultaneously. */
+    DWORD sbc_freq = 0;
+    if (profile->allow_48khz)   sbc_freq |= 1u << 0;
+    if (profile->allow_44_1khz) sbc_freq |= 1u << 1;
+    if (profile->allow_32khz)   sbc_freq |= 1u << 2;
+    if (profile->allow_16khz)   sbc_freq |= 1u << 3;
+    if (sbc_freq == 0) sbc_freq = 1u << 0;  /* never write zero */
+    write_dword(h, L"SbcSamplingFrequency", sbc_freq);
+
+    /* SBC allocation method (single bit). */
+    DWORD sbc_alloc = (profile->allocation_method == OA2DP_ALLOC_SNR)
+                          ? (1u << 1) : (1u << 0);
+    write_dword(h, L"SbcAllocationMethod", sbc_alloc);
+
+    /* SBC subbands (single bit). */
+    DWORD sbc_sub = (profile->subbands == OA2DP_SUBBANDS_4)
+                        ? (1u << 1) : (1u << 0);
+    write_dword(h, L"SbcSubbands", sbc_sub);
+
+    /* SBC block length (single bit). */
+    DWORD sbc_blk = 0;
+    switch (profile->block_size) {
+    case OA2DP_BLOCK_16: sbc_blk = 1u << 0; break;
+    case OA2DP_BLOCK_12: sbc_blk = 1u << 1; break;
+    case OA2DP_BLOCK_8:  sbc_blk = 1u << 2; break;
+    case OA2DP_BLOCK_4:  sbc_blk = 1u << 3; break;
+    default:             sbc_blk = 1u << 0; break;
+    }
+    write_dword(h, L"SbcBlockLength", sbc_blk);
+
+    /* SBC bitpool max (integer, not bitfield). */
+    write_dword(h, L"SbcMaximumBitpool", (DWORD)profile->bitpool);
+
+    /* AAC channel mode bitfield. */
+    DWORD aac_chmode = 0;
+    if (profile->aac_allow_stereo) aac_chmode |= 1u << 2;
+    if (profile->aac_allow_mono)   aac_chmode |= 1u << 3;
+    if (aac_chmode == 0) aac_chmode = 1u << 2;
+    write_dword(h, L"AacChannelMode", aac_chmode);
+
+    /* AAC sample-rate bitfield (only the two rates Pixel Buds Pro 2
+     * supports for now — extending to other rates is just more bits
+     * in the same field). */
+    DWORD aac_freq = 0;
+    if (profile->aac_allow_48khz)   aac_freq |= 1u << 3;
+    if (profile->aac_allow_44_1khz) aac_freq |= 1u << 4;
+    if (aac_freq == 0) aac_freq = 1u << 3;
+    write_dword(h, L"AacSamplingFrequency", aac_freq);
+
+    /* AAC bitrate.  0 in the profile means "use device default" → write
+     * the 0xFFFFFFFE sentinel that Alt A2DP Driver expects. */
+    DWORD aac_bitrate = (profile->aac_bitrate_kbps == 0)
+                            ? 0xFFFFFFFEu
+                            : (DWORD)(profile->aac_bitrate_kbps * 1000);
+    write_dword(h, L"AacBitrate", aac_bitrate);
+
+    /* ABR enable (applies to both codecs). */
+    write_dword(h, L"AbrEnable", profile->abr_enable ? 1u : 0u);
+
+    RegCloseKey(h);
+
+    oa2dp_log(OA2DP_LOG_INFO,
+              "altdriver write: pushed codec settings to Next\\%s "
+              "(codec=%s, abr=%d, max_bp=%d, aac_kbps=%d)",
+              device_id,
+              profile->preferred_codec == OA2DP_CODEC_AAC ? "AAC" : "SBC",
+              profile->abr_enable, profile->bitpool,
+              profile->aac_bitrate_kbps);
     return 0;
 }

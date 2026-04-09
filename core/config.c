@@ -196,6 +196,14 @@ int oa2dp_profile_save(const char *path, const OA2DP_DeviceProfile *p)
     fprintf(f, "\n[hfp_watchdog]\n");
     fprintf(f, "hfp_watchdog_enabled = %d\n", p->hfp_watchdog_enabled);
 
+    fprintf(f, "\n[aac]\n");
+    fprintf(f, "aac_bitrate_kbps = %d\n",  p->aac_bitrate_kbps);
+    fprintf(f, "aac_allow_stereo = %d\n",  p->aac_allow_stereo);
+    fprintf(f, "aac_allow_mono = %d\n",    p->aac_allow_mono);
+    fprintf(f, "aac_allow_44_1khz = %d\n", p->aac_allow_44_1khz);
+    fprintf(f, "aac_allow_48khz = %d\n",   p->aac_allow_48khz);
+    fprintf(f, "abr_enable = %d\n",        p->abr_enable);
+
     fclose(f);
     oa2dp_log(OA2DP_LOG_INFO, "config: saved profile for '%s' to '%s'",
               p->display_name, path);
@@ -265,6 +273,18 @@ int oa2dp_profile_load(const char *path, OA2DP_DeviceProfile *p)
             p->auto_heal_enabled = atoi(val);
         else if (strcmp(key, "hfp_watchdog_enabled") == 0)
             p->hfp_watchdog_enabled = atoi(val);
+        else if (strcmp(key, "aac_bitrate_kbps") == 0)
+            p->aac_bitrate_kbps = atoi(val);
+        else if (strcmp(key, "aac_allow_stereo") == 0)
+            p->aac_allow_stereo = atoi(val);
+        else if (strcmp(key, "aac_allow_mono") == 0)
+            p->aac_allow_mono = atoi(val);
+        else if (strcmp(key, "aac_allow_44_1khz") == 0)
+            p->aac_allow_44_1khz = atoi(val);
+        else if (strcmp(key, "aac_allow_48khz") == 0)
+            p->aac_allow_48khz = atoi(val);
+        else if (strcmp(key, "abr_enable") == 0)
+            p->abr_enable = atoi(val);
     }
 
     fclose(f);
