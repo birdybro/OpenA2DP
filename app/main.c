@@ -29,6 +29,7 @@
 #include "oa2dp_driver_control.h"
 #include "oa2dp_hfp_watchdog.h"
 #include "oa2dp_log.h"
+#include "oa2dp_remote_events.h"
 #include "oa2dp_resource.h"
 #include "oa2dp_stats.h"
 #include "oa2dp_tray.h"
@@ -285,12 +286,18 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
      * a right-click menu of common recovery actions. */
     oa2dp_tray_init(hwnd);
 
+    /* Bluetooth remote-control event observer (debug logging of
+     * tap / volume / etc. coming from BT headphones). */
+    oa2dp_remote_events_init(hwnd);
+
     /* Timers. */
-    DWORD last_refresh  = GetTickCount();
-    DWORD last_save     = GetTickCount();
-    DWORD last_watchdog = GetTickCount();
-    const DWORD REFRESH_INTERVAL_MS = 2000;
-    const DWORD SAVE_INTERVAL_MS    = 3000;
+    DWORD last_refresh     = GetTickCount();
+    DWORD last_save        = GetTickCount();
+    DWORD last_watchdog    = GetTickCount();
+    DWORD last_remote_poll = GetTickCount();
+    const DWORD REFRESH_INTERVAL_MS     = 2000;
+    const DWORD SAVE_INTERVAL_MS        = 3000;
+    const DWORD REMOTE_POLL_INTERVAL_MS = 200;
 
     oa2dp_log(OA2DP_LOG_INFO, "entering main loop");
 
@@ -337,6 +344,10 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
             oa2dp_hfp_watchdog_tick(&g_ui.devices);
             last_watchdog = now;
         }
+        if (now - last_remote_poll >= REMOTE_POLL_INTERVAL_MS) {
+            oa2dp_remote_events_poll();
+            last_remote_poll = now;
+        }
 
         if (!oa2dp_renderer_begin_frame())
             continue;
@@ -363,6 +374,7 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
         }
     }
 
+    oa2dp_remote_events_shutdown();
     oa2dp_tray_shutdown();
     oa2dp_device_unregister_notify();
     oa2dp_audio_status_shutdown();

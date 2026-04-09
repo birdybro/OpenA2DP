@@ -62,6 +62,7 @@ set CPP_SRCS=%CPP_SRCS% "%BACKENDS%\imgui_impl_win32.cpp"
 set CPP_SRCS=%CPP_SRCS% "%BACKENDS%\imgui_impl_dx11.cpp"
 set CPP_SRCS=%CPP_SRCS% "%SRC_APP%\renderer.cpp"
 set CPP_SRCS=%CPP_SRCS% "%SRC_SVC%\audio_status.cpp"
+set CPP_SRCS=%CPP_SRCS% "%SRC_SVC%\remote_events.cpp"
 
 :: ── C sources (core + main) ───────────────────────────────────────
 set C_SRCS=
