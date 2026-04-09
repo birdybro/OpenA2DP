@@ -136,6 +136,14 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg,
         return 0;
 
     switch (msg) {
+    case WM_GETMINMAXINFO: {
+        /* Enforce a minimum window size so the user can't crush the
+         * layout into uselessness. */
+        MINMAXINFO *mmi = (MINMAXINFO *)lparam;
+        mmi->ptMinTrackSize.x = 880;
+        mmi->ptMinTrackSize.y = 232;
+        return 0;
+    }
     case WM_SIZE:
         if (wparam != SIZE_MINIMIZED) {
             oa2dp_renderer_resize((UINT)LOWORD(lparam), (UINT)HIWORD(lparam));
