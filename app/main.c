@@ -98,6 +98,24 @@ static void save_dirty_profiles(void)
     snapshot_profiles();
 }
 
+/* Capture the window's current "normal" rect (the size/pos to use
+ * when not minimized or maximized) and persist it.  Called from
+ * WM_CLOSE so we record the user's last layout *before* the HWND
+ * gets destroyed — by the time the main loop returns, the window
+ * is already gone and GetWindowPlacement would fail silently. */
+static void save_window_placement(HWND hwnd)
+{
+    WINDOWPLACEMENT wp = {0};
+    wp.length = sizeof(wp);
+    if (GetWindowPlacement(hwnd, &wp)) {
+        RECT *r = &wp.rcNormalPosition;
+        oa2dp_window_state_save(r->left, r->top,
+                                r->right - r->left,
+                                r->bottom - r->top,
+                                g_ui.advanced_mode);
+    }
+}
+
 /* Render one full frame.  Extracted from the main loop so the
  * WndProc can call it during the modal resize loop, when Windows
  * is pumping messages internally and our main loop is blocked. */
@@ -174,6 +192,14 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg,
             return 0;
         }
         break;
+    case WM_CLOSE:
+        /* Persist window position/size BEFORE the HWND is destroyed.
+         * DefWindowProc(WM_CLOSE) calls DestroyWindow which fires
+         * WM_DESTROY → PostQuitMessage; by the time the main loop
+         * returns the window handle is invalid. */
+        save_window_placement(hwnd);
+        DestroyWindow(hwnd);
+        return 0;
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;
@@ -393,27 +419,20 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
     oa2dp_log(OA2DP_LOG_INFO, "shutting down");
     save_dirty_profiles();
 
-    /* Persist window placement.  GetWindowPlacement gives the
-     * "normal" rect even when the window is currently minimized
-     * or hidden to tray, which is exactly what we want to restore. */
-    {
-        WINDOWPLACEMENT wp = {0};
-        wp.length = sizeof(wp);
-        if (GetWindowPlacement(hwnd, &wp)) {
-            RECT *r = &wp.rcNormalPosition;
-            oa2dp_window_state_save(r->left, r->top,
-                                    r->right - r->left,
-                                    r->bottom - r->top,
-                                    g_ui.advanced_mode);
-        }
-    }
+    /* Window placement was already saved in WM_CLOSE before the
+     * HWND was destroyed — but if shutdown got here via some other
+     * path (PostQuitMessage from a tray menu, etc.) and the window
+     * still exists, save it now as a fallback. */
+    if (IsWindow(hwnd))
+        save_window_placement(hwnd);
 
     oa2dp_remote_events_shutdown();
     oa2dp_tray_shutdown();
     oa2dp_device_unregister_notify();
     oa2dp_audio_status_shutdown();
     oa2dp_renderer_shutdown();
-    DestroyWindow(hwnd);
+    if (IsWindow(hwnd))
+        DestroyWindow(hwnd);
     UnregisterClassW(wc.lpszClassName, wc.hInstance);
 
     return 0;
