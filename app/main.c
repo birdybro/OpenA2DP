@@ -98,6 +98,17 @@ static void save_dirty_profiles(void)
     snapshot_profiles();
 }
 
+/* Render one full frame.  Extracted from the main loop so the
+ * WndProc can call it during the modal resize loop, when Windows
+ * is pumping messages internally and our main loop is blocked. */
+static void render_one_frame(void)
+{
+    if (!oa2dp_renderer_begin_frame())
+        return;
+    oa2dp_panels_draw(&g_ui);
+    oa2dp_renderer_end_frame();
+}
+
 /* ── WndProc ────────────────────────────────────────────────────────── */
 
 static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg,
@@ -108,8 +119,33 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg,
 
     switch (msg) {
     case WM_SIZE:
-        if (wparam != SIZE_MINIMIZED)
+        if (wparam != SIZE_MINIMIZED) {
             oa2dp_renderer_resize((UINT)LOWORD(lparam), (UINT)HIWORD(lparam));
+            /* Re-render immediately so the user sees the new size in
+             * real time during a border drag.  Without this the
+             * window content stays stale until WM_EXITSIZEMOVE. */
+            render_one_frame();
+        }
+        return 0;
+    case WM_ENTERSIZEMOVE:
+        /* Drive a periodic redraw while the modal resize loop is
+         * running.  WM_SIZE only fires on dimension changes, so
+         * without a timer the content freezes whenever the user
+         * pauses mid-drag. */
+        SetTimer(hwnd, 1, 16, NULL);
+        break;
+    case WM_EXITSIZEMOVE:
+        KillTimer(hwnd, 1);
+        break;
+    case WM_TIMER:
+        if (wparam == 1) {
+            render_one_frame();
+            return 0;
+        }
+        break;
+    case WM_PAINT:
+        render_one_frame();
+        ValidateRect(hwnd, NULL);
         return 0;
     case WM_SYSCOMMAND:
         if ((wparam & 0xFFF0) == SC_KEYMENU)
@@ -351,12 +387,7 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
             last_remote_poll = now;
         }
 
-        if (!oa2dp_renderer_begin_frame())
-            continue;
-
-        oa2dp_panels_draw(&g_ui);
-
-        oa2dp_renderer_end_frame();
+        render_one_frame();
     }
 
     oa2dp_log(OA2DP_LOG_INFO, "shutting down");
