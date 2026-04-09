@@ -102,6 +102,11 @@ int oa2dp_altdriver_read_next(const char *device_id,
  * Next values to take effect — the driver only consults Next at
  * AVDTP negotiation time.
  *
+ * device_cap_max_bitpool: device's reported Capability.SbcMaximumBitpool
+ *   (status->sbc_max_bitpool_capability).  Used to clamp the written
+ *   bitpool value down to the device's safe maximum unless
+ *   profile->sbc_override_device_max is set.  Pass 0 to skip clamping.
+ *
  * Requires the process to be running elevated; non-admin writes
  * will fail with ERROR_ACCESS_DENIED, which is logged with an
  * explicit hint.
@@ -109,7 +114,8 @@ int oa2dp_altdriver_read_next(const char *device_id,
  * Returns 0 on success, -1 on any failure.
  */
 int oa2dp_altdriver_write_next(const char *device_id,
-                               const OA2DP_DeviceProfile *profile);
+                               const OA2DP_DeviceProfile *profile,
+                               int device_cap_max_bitpool);
 
 #ifdef __cplusplus
 }

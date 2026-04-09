@@ -196,15 +196,26 @@ int oa2dp_altdriver_read_current(const char *device_id,
      * AAC since we know the device's max sustainable rate there. */
     if (live_bitrate > 0) {
         status->codec_bitrate_kbps = (int)(live_bitrate / 1000);
-    } else if (status->active_codec == OA2DP_CODEC_AAC) {
+    }
+
+    /* Always read Capability to get the device's reported max
+     * SBC bitpool (the safe ceiling) and to fall back for AAC
+     * bitrate if Current.Bitrate was zero. */
+    {
         HKEY hcap = NULL;
         if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, cap_path, 0, KEY_READ, &hcap)
             == ERROR_SUCCESS) {
+            DWORD cap_max_bp = 0;
             DWORD cap_aac_bitrate = 0;
-            read_dword(hcap, L"AacBitrate", &cap_aac_bitrate);
+            read_dword(hcap, L"SbcMaximumBitpool", &cap_max_bp);
+            read_dword(hcap, L"AacBitrate",        &cap_aac_bitrate);
             RegCloseKey(hcap);
-            if (cap_aac_bitrate > 0)
+            if (cap_max_bp > 0)
+                status->sbc_max_bitpool_capability = (int)cap_max_bp;
+            if (live_bitrate == 0 && cap_aac_bitrate > 0 &&
+                status->active_codec == OA2DP_CODEC_AAC) {
                 status->codec_bitrate_kbps = (int)(cap_aac_bitrate / 1000);
+            }
         }
     }
 
@@ -316,7 +327,8 @@ static int write_dword(HKEY h, const wchar_t *name, DWORD value)
 }
 
 int oa2dp_altdriver_write_next(const char *device_id,
-                               const OA2DP_DeviceProfile *profile)
+                               const OA2DP_DeviceProfile *profile,
+                               int device_cap_max_bitpool)
 {
     if (!device_id || !profile) return -1;
 
@@ -391,8 +403,21 @@ int oa2dp_altdriver_write_next(const char *device_id,
     }
     write_dword(h, L"SbcBlockLength", sbc_blk);
 
-    /* SBC bitpool max (integer, not bitfield). */
-    write_dword(h, L"SbcMaximumBitpool", (DWORD)profile->bitpool);
+    /* SBC bitpool max (integer, not bitfield).  Clamped to the
+     * device's reported Capability max unless the user explicitly
+     * enabled the override flag — exceeding the device's claimed
+     * max can produce broken audio or damage cheaper BT chips. */
+    int effective_bp = profile->bitpool;
+    if (!profile->sbc_override_device_max &&
+        device_cap_max_bitpool > 0 &&
+        effective_bp > device_cap_max_bitpool) {
+        oa2dp_log(OA2DP_LOG_INFO,
+                  "altdriver write: clamping SbcMaximumBitpool %d -> %d "
+                  "(device's reported max for %s, override disabled)",
+                  effective_bp, device_cap_max_bitpool, device_id);
+        effective_bp = device_cap_max_bitpool;
+    }
+    write_dword(h, L"SbcMaximumBitpool", (DWORD)effective_bp);
 
     /* AAC channel mode bitfield. */
     DWORD aac_chmode = 0;

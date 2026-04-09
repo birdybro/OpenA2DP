@@ -291,8 +291,47 @@ static void draw_settings(OA2DP_UIState *ui)
         if (igCombo_Str_arr("Subbands", &sb, subband_labels, OA2DP_SUBBANDS_COUNT, -1))
             p->subbands = (OA2DP_Subbands)sb;
 
+        /* SBC bitpool with device-cap safety guard.  Default slider
+         * max = device's reported Capability.SbcMaximumBitpool.  The
+         * "Override device max" checkbox lets the user push beyond
+         * that, but only when running as Administrator. */
+        int dev_cap = s->sbc_max_bitpool_capability;
+        int slider_max = (dev_cap > 0 && !p->sbc_override_device_max)
+                             ? dev_cap : 250;
+        if (slider_max < 2) slider_max = 250;
+
+        /* Force-clamp the stored value if it exceeds the active
+         * slider max — protects against pre-existing INI values
+         * that were saved before this safety guard existed. */
+        if (p->bitpool > slider_max) p->bitpool = slider_max;
+        if (p->bitpool < 2) p->bitpool = 2;
+
         igSetNextItemWidth(200);
-        igSliderInt("Max Bitpool", &p->bitpool, 2, 250, "%d", 0);
+        igSliderInt("Max Bitpool", &p->bitpool, 2, slider_max, "%d", 0);
+
+        /* Override toggle — gated on elevation. */
+        {
+            int can_toggle = elevated;
+            if (!can_toggle) igBeginDisabled(true);
+            bool ovr = (bool)p->sbc_override_device_max;
+            igCheckbox("Override device max bitpool", &ovr);
+            p->sbc_override_device_max = ovr;
+            if (!can_toggle) igEndDisabled();
+
+            if (dev_cap > 0) {
+                igSameLine(0, 8);
+                igTextDisabled("(device max: %d)", dev_cap);
+            }
+            if (p->sbc_override_device_max) {
+                ImVec4_c warn = { 1.0f, 0.5f, 0.3f, 1.0f };
+                igTextColored(warn,
+                    "WARNING: bitpool above the device's reported max may "
+                    "produce broken audio or damage some Bluetooth chips.");
+            } else if (!elevated && dev_cap > 0) {
+                igTextDisabled(
+                    "(Override is admin-only — relaunch as Administrator to enable)");
+            }
+        }
     } else if (p->preferred_codec == OA2DP_CODEC_AAC) {
         igText("AAC Channels");
         {
@@ -331,6 +370,18 @@ static void draw_settings(OA2DP_UIState *ui)
 
     /* ── Dirty detection & Apply ────────────────────────────────── */
     if (codec_editable) {
+        /* Compute the bitpool value that would actually get written
+         * (after the device-cap clamp), so the dirty check matches
+         * what we'd push to the registry — otherwise the form would
+         * show "dirty" forever just because the snapshot has 37 and
+         * the profile has 53. */
+        int effective_bp = p->bitpool;
+        if (!p->sbc_override_device_max &&
+            s->sbc_max_bitpool_capability > 0 &&
+            effective_bp > s->sbc_max_bitpool_capability) {
+            effective_bp = s->sbc_max_bitpool_capability;
+        }
+
         int dirty =
             (p->preferred_codec    != s->snap_preferred_codec) ||
             (p->allow_16khz        != s->snap_allow_16khz) ||
@@ -341,7 +392,7 @@ static void draw_settings(OA2DP_UIState *ui)
             (p->block_size         != s->snap_block_size) ||
             (p->allocation_method  != s->snap_allocation_method) ||
             (p->subbands           != s->snap_subbands) ||
-            (p->bitpool            != s->snap_bitpool) ||
+            (effective_bp          != s->snap_bitpool) ||
             (p->aac_bitrate_kbps   != s->snap_aac_bitrate_kbps) ||
             (p->aac_allow_stereo   != s->snap_aac_allow_stereo) ||
             (p->aac_allow_mono     != s->snap_aac_allow_mono) ||
@@ -364,7 +415,8 @@ static void draw_settings(OA2DP_UIState *ui)
 
             ImVec2_c btn = { 100, 0 };
             if (igButton("Apply", btn)) {
-                if (oa2dp_altdriver_write_next(p->device_id, p) == 0) {
+                if (oa2dp_altdriver_write_next(p->device_id, p,
+                        s->sbc_max_bitpool_capability) == 0) {
                     /* Refresh snapshot from registry so dirty clears. */
                     oa2dp_altdriver_read_next(p->device_id, s);
                 }
@@ -372,7 +424,8 @@ static void draw_settings(OA2DP_UIState *ui)
             igSameLine(0, 6);
             ImVec2_c btn_long = { 160, 0 };
             if (igButton("Apply & Reconnect", btn_long)) {
-                if (oa2dp_altdriver_write_next(p->device_id, p) == 0) {
+                if (oa2dp_altdriver_write_next(p->device_id, p,
+                        s->sbc_max_bitpool_capability) == 0) {
                     oa2dp_altdriver_read_next(p->device_id, s);
                     oa2dp_action_reconnect_async(p->device_id);
                 }

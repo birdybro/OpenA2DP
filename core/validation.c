@@ -38,8 +38,14 @@ void oa2dp_profile_defaults(OA2DP_DeviceProfile *p)
     p->allocation_method    = OA2DP_ALLOC_LOUDNESS;
     p->subbands             = OA2DP_SUBBANDS_8;
     p->override_bitpool     = 0;
-    p->bitpool              = 53;   /* common high-quality SBC default */
-    p->auto_reduce_bitpool  = 1;
+    /* Bitpool default is intentionally high — the actual value used
+     * gets clamped to the device's Capability.SbcMaximumBitpool at
+     * write time unless the user explicitly enables the override.
+     * This means new profiles default to "use device's max", which
+     * is the safe and usually-best choice. */
+    p->bitpool                  = 53;
+    p->sbc_override_device_max  = 0;
+    p->auto_reduce_bitpool      = 1;
     p->auto_heal_enabled    = 0;    /* opt-in: user enables per device once verified */
     p->hfp_watchdog_enabled = 0;    /* opt-in: keeps Handsfree disabled for headphones-only devices */
 
@@ -82,7 +88,8 @@ void oa2dp_profile_validate(OA2DP_DeviceProfile *p)
     p->aac_allow_mono    = clamp_bool(p->aac_allow_mono);
     p->aac_allow_44_1khz = clamp_bool(p->aac_allow_44_1khz);
     p->aac_allow_48khz   = clamp_bool(p->aac_allow_48khz);
-    p->abr_enable        = clamp_bool(p->abr_enable);
+    p->abr_enable             = clamp_bool(p->abr_enable);
+    p->sbc_override_device_max = clamp_bool(p->sbc_override_device_max);
     if (!p->aac_allow_stereo && !p->aac_allow_mono)
         p->aac_allow_stereo = 1;
     if (!p->aac_allow_44_1khz && !p->aac_allow_48khz)

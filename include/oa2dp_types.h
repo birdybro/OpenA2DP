@@ -127,6 +127,14 @@ typedef struct OA2DP_DeviceProfile {
     /* Adaptive Bit Rate flag.  Applies to both SBC and AAC under
      * Alternative A2DP Driver. */
     int abr_enable;
+
+    /* If 1, the SBC bitpool slider is allowed to exceed the device's
+     * Capability.SbcMaximumBitpool ceiling.  Defaults to 0 (safe).
+     * Toggling on requires Administrator elevation in the UI.
+     * Setting bitpool above the device's reported maximum can
+     * produce broken audio or damage some Bluetooth chips, hence
+     * the safety guard. */
+    int sbc_override_device_max;
 } OA2DP_DeviceProfile;
 
 /* ── Runtime device status (read-only, from system) ─────────────────── */
@@ -170,6 +178,14 @@ typedef struct OA2DP_DeviceStatus {
      * silent.  Distinct from estimated_bitrate_kbps which is the
      * post-decode WASAPI mix-format rate. */
     int codec_bitrate_kbps;
+
+    /* Device's reported maximum SBC bitpool from
+     * Capability\<addr>\SbcMaximumBitpool.  This is the safe ceiling
+     * — exceeding it can produce broken audio or damage cheaper
+     * Bluetooth chips, so the settings panel uses this as the
+     * slider's max unless the user explicitly enables override
+     * (which requires admin).  0 = not yet probed / unknown. */
+    int sbc_max_bitpool_capability;
 
     /* Snapshot of the codec-relevant profile fields the LAST time we
      * read or wrote Alternative A2DP Driver's Devices\Next\<addr>

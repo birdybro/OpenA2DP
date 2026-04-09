@@ -203,6 +203,7 @@ int oa2dp_profile_save(const char *path, const OA2DP_DeviceProfile *p)
     fprintf(f, "aac_allow_44_1khz = %d\n", p->aac_allow_44_1khz);
     fprintf(f, "aac_allow_48khz = %d\n",   p->aac_allow_48khz);
     fprintf(f, "abr_enable = %d\n",        p->abr_enable);
+    fprintf(f, "sbc_override_device_max = %d\n", p->sbc_override_device_max);
 
     fclose(f);
     oa2dp_log(OA2DP_LOG_INFO, "config: saved profile for '%s' to '%s'",
@@ -285,6 +286,8 @@ int oa2dp_profile_load(const char *path, OA2DP_DeviceProfile *p)
             p->aac_allow_48khz = atoi(val);
         else if (strcmp(key, "abr_enable") == 0)
             p->abr_enable = atoi(val);
+        else if (strcmp(key, "sbc_override_device_max") == 0)
+            p->sbc_override_device_max = atoi(val);
     }
 
     fclose(f);
