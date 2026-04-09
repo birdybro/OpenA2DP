@@ -27,6 +27,7 @@
 #include "oa2dp_audio_status.h"
 #include "oa2dp_config.h"
 #include "oa2dp_driver_control.h"
+#include "oa2dp_registry_probe.h"
 #include "oa2dp_hfp_watchdog.h"
 #include "oa2dp_log.h"
 #include "oa2dp_stats.h"
@@ -259,6 +260,12 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
                   ? "elevated (Administrator)"
                   : "non-elevated (service control disabled)");
     oa2dp_driver_scan(&g_ui.drivers);
+
+    /* Reconnaissance pass: dump any registry config that the
+     * detected A2DP services or known third-party A2DP vendors
+     * (Alternative A2DP Driver, etc.) leave in the registry, so
+     * we can find out what knobs are actually exposed. */
+    oa2dp_registry_probe_log(&g_ui.drivers);
 
     oa2dp_device_scan(&g_ui.devices);
     save_new_profiles();
