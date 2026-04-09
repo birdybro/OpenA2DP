@@ -8,6 +8,26 @@
 #ifndef OA2DP_TYPES_H
 #define OA2DP_TYPES_H
 
+/* ── Windows-only guard ─────────────────────────────────────────────────
+ *
+ * OpenA2DP is built directly on Win32 Bluetooth APIs (BluetoothAPIs.h /
+ * bthprops.lib), MMDevice / WASAPI, and Direct3D 11.  None of these are
+ * available on Linux, macOS, BSD, or any other platform — there is no
+ * portable shim layer and there is no plan to add one.
+ *
+ * If you are reading this on a non-Windows machine: this project will
+ * not build for your OS, will not run under WINE in any meaningful
+ * sense (the Bluetooth stack calls would fail), and is not a candidate
+ * for a port.  Please do not file issues asking for Linux/macOS support.
+ *
+ * The Linux equivalent is BlueZ + PulseAudio/PipeWire which already
+ * exposes everything OpenA2DP exposes (and far more) — use that
+ * instead.
+ */
+#if !defined(_WIN32)
+#  error "OpenA2DP is a Windows-only application. See include/oa2dp_types.h for details."
+#endif
+
 #include <stdint.h>
 #include <time.h>
 

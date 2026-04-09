@@ -5,6 +5,10 @@
  * main.c - Win32 entry point, window creation, and message loop
  */
 
+#if !defined(_WIN32)
+#  error "OpenA2DP only builds on Windows. Linux and macOS are not supported."
+#endif
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
