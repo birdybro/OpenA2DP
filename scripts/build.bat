@@ -63,6 +63,7 @@ set CPP_SRCS=%CPP_SRCS% "%BACKENDS%\imgui_impl_dx11.cpp"
 set CPP_SRCS=%CPP_SRCS% "%SRC_APP%\renderer.cpp"
 set CPP_SRCS=%CPP_SRCS% "%SRC_SVC%\audio_status.cpp"
 set CPP_SRCS=%CPP_SRCS% "%SRC_SVC%\remote_events.cpp"
+set CPP_SRCS=%CPP_SRCS% "%SRC_SVC%\smtc_observer.cpp"
 
 :: ── C sources (core + main) ───────────────────────────────────────
 set C_SRCS=
@@ -125,7 +126,7 @@ if %errorlevel% neq 0 (
 :: main.c defines BOTH wWinMain and wmain; the linker pulls in the
 :: appropriate one for each subsystem and the other becomes dead code.
 echo --- Linking GUI binary ---
-set LIBS=d3d11.lib dxgi.lib user32.lib gdi32.lib shell32.lib dwmapi.lib bthprops.lib ole32.lib propsys.lib advapi32.lib setupapi.lib
+set LIBS=d3d11.lib dxgi.lib user32.lib gdi32.lib shell32.lib dwmapi.lib bthprops.lib ole32.lib propsys.lib advapi32.lib setupapi.lib runtimeobject.lib oleaut32.lib
 link /nologo /subsystem:windows /out:"%EXE_GUI%" %OUTDIR%\*.obj "%OUTDIR%\version_gui.res" %LIBS%
 if %errorlevel% neq 0 (
     echo GUI link FAILED

@@ -24,6 +24,7 @@
 #include <endpointvolume.h>
 
 #include "oa2dp_remote_events.h"
+#include "oa2dp_smtc.h"
 #include "oa2dp_log.h"
 
 #include <math.h>
@@ -89,6 +90,12 @@ extern "C" int oa2dp_remote_events_init(void *hwnd_void)
     } else {
         oa2dp_log(OA2DP_LOG_INFO, "remote events: keyboard hook installed");
     }
+
+    /* Phase B: SMTC observer for play/pause/next/prev events that
+     * don't get translated to keystrokes (the Pixel Buds Pro 2 case
+     * — they go straight from AVRCP to SMTC). */
+    oa2dp_smtc_init();
+
     return 0;
 }
 
@@ -99,6 +106,7 @@ extern "C" void oa2dp_remote_events_shutdown(void)
         g_kbd_hook = NULL;
         oa2dp_log(OA2DP_LOG_DEBUG, "remote events: keyboard hook removed");
     }
+    oa2dp_smtc_shutdown();
 }
 
 /* ── volume polling ─────────────────────────────────────────────────── */
@@ -162,4 +170,9 @@ extern "C" void oa2dp_remote_events_poll(void)
                   "remote: %s", new_mute ? "muted" : "unmuted");
         g_last_mute = new_mute;
     }
+
+    /* SMTC poll — picks up tap → playback state, double/triple tap
+     * → track change, etc.  Quiet on its own when nothing has
+     * changed since the last poll. */
+    oa2dp_smtc_poll();
 }
