@@ -9,6 +9,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <shellapi.h>
 #include <dbt.h>
 
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
@@ -16,9 +17,12 @@
 
 #include "renderer.h"
 #include "panels.h"
+#include "oa2dp_cli.h"
 #include "oa2dp_device.h"
 #include "oa2dp_audio_status.h"
 #include "oa2dp_config.h"
+#include "oa2dp_driver_detect.h"
+#include "oa2dp_hfp_watchdog.h"
 #include "oa2dp_log.h"
 
 #include <string.h>
@@ -123,6 +127,22 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     (void)lpCmdLine;
 
     oa2dp_log_init();
+
+    /* ── CLI mode short-circuit ─────────────────────────────────────
+     * If the user passed a recognised --command argument, run that
+     * action headlessly and exit without touching D3D11, ImGui, or
+     * the device scan UI plumbing. */
+    {
+        int wargc = 0;
+        LPWSTR *wargv = CommandLineToArgvW(GetCommandLineW(), &wargc);
+        if (wargv && oa2dp_cli_is_cli_invocation(wargc, wargv)) {
+            int rc = oa2dp_cli_run(wargc, wargv);
+            LocalFree(wargv);
+            return rc;
+        }
+        if (wargv) LocalFree(wargv);
+    }
+
     oa2dp_log(OA2DP_LOG_INFO, "OpenA2DP starting");
 
     /* Register window class. */
@@ -167,6 +187,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     if (oa2dp_audio_status_init() != 0)
         oa2dp_log(OA2DP_LOG_WARN, "audio status init failed, endpoint data unavailable");
 
+    /* ── A2DP driver detection (read-only inventory) ────────────── */
+    oa2dp_driver_detect_log();
+
     /* ── Device enumeration ─────────────────────────────────────── */
     oa2dp_ui_state_init(&g_ui);
 
@@ -181,8 +204,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     oa2dp_device_register_notify(hwnd);
 
     /* Timers. */
-    DWORD last_refresh = GetTickCount();
-    DWORD last_save    = GetTickCount();
+    DWORD last_refresh  = GetTickCount();
+    DWORD last_save     = GetTickCount();
+    DWORD last_watchdog = GetTickCount();
     const DWORD REFRESH_INTERVAL_MS = 2000;
     const DWORD SAVE_INTERVAL_MS    = 3000;
 
@@ -225,6 +249,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         if (now - last_save >= SAVE_INTERVAL_MS) {
             save_dirty_profiles();
             last_save = now;
+        }
+        if (now - last_watchdog >= OA2DP_HFP_WATCHDOG_INTERVAL_MS) {
+            oa2dp_hfp_watchdog_tick(&g_ui.devices);
+            last_watchdog = now;
         }
 
         if (!oa2dp_renderer_begin_frame())

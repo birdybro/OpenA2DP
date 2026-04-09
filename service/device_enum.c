@@ -153,23 +153,14 @@ int oa2dp_device_scan(OA2DP_DeviceList *list)
                                : OA2DP_CONN_DISCONNECTED;
 
         /* For connected devices, query the audio endpoint for real data.
-         * Fields that can't be detected (codec, bitpool, etc.) keep defaults. */
+         * Codec/bitpool/stereo-mode etc. are AVDTP-internal and not
+         * exposed by any user-mode Windows API, so we leave them at
+         * UNKNOWN/0 rather than fabricating values.  See
+         * docs/driver-evaluation.md for the gory details. */
         if (stat->connection == OA2DP_CONN_CONNECTED) {
-            stat->active_codec = OA2DP_CODEC_SBC;
-            stat->stereo_mode  = OA2DP_STEREO_JOINT;
-            stat->block_size   = OA2DP_BLOCK_16;
-            stat->allocation_method = OA2DP_ALLOC_LOUDNESS;
-            stat->subbands     = OA2DP_SUBBANDS_8;
-            stat->bitpool      = 53;
-
-            /* Try to get real sample rate / bit depth / channels. */
-            if (oa2dp_audio_status_query(prof->device_id, stat) != 0) {
-                /* Fallback defaults if endpoint not found. */
-                stat->sample_rate  = 44100;
-                stat->bit_depth    = 16;
-                stat->channels     = 2;
-                stat->estimated_bitrate_kbps = 328;
-            }
+            stat->active_codec = OA2DP_CODEC_UNKNOWN;
+            /* WASAPI gives us the only fields we can honestly populate. */
+            (void)oa2dp_audio_status_query(prof->device_id, stat);
         }
 
         oa2dp_log(OA2DP_LOG_INFO, "device scan: [%d] %s (%s) - %s",
@@ -229,18 +220,15 @@ int oa2dp_device_refresh_status(OA2DP_DeviceList *list)
                               ? "connected" : "disconnected");
 
                 if (stat->connection == OA2DP_CONN_CONNECTED) {
-                    stat->active_codec = OA2DP_CODEC_SBC;
-                    stat->stereo_mode  = OA2DP_STEREO_JOINT;
-                    stat->block_size   = OA2DP_BLOCK_16;
-                    stat->allocation_method = OA2DP_ALLOC_LOUDNESS;
-                    stat->subbands     = OA2DP_SUBBANDS_8;
-                    stat->bitpool      = 53;
-                    if (oa2dp_audio_status_query(prof->device_id, stat) != 0) {
-                        stat->sample_rate  = 44100;
-                        stat->bit_depth    = 16;
-                        stat->channels     = 2;
-                        stat->estimated_bitrate_kbps = 328;
-                    }
+                    /* See note in oa2dp_device_scan: codec / SBC fields
+                     * are not knowable from user-mode, only WASAPI mix
+                     * format is real. */
+                    stat->active_codec = OA2DP_CODEC_UNKNOWN;
+                    stat->sample_rate = 0;
+                    stat->bit_depth   = 0;
+                    stat->channels    = 0;
+                    stat->estimated_bitrate_kbps = 0;
+                    (void)oa2dp_audio_status_query(prof->device_id, stat);
 
                     /* If the user opted into auto-heal for this device,
                      * kick off a check on a background thread.  The worker

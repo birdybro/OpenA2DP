@@ -45,7 +45,10 @@ set C_SRCS=%C_SRCS% "%SRC_CORE%\log.c"
 set C_SRCS=%C_SRCS% "%SRC_SVC%\device_enum.c"
 set C_SRCS=%C_SRCS% "%SRC_SVC%\actions.c"
 set C_SRCS=%C_SRCS% "%SRC_SVC%\auto_heal.c"
+set C_SRCS=%C_SRCS% "%SRC_SVC%\hfp_watchdog.c"
+set C_SRCS=%C_SRCS% "%SRC_SVC%\driver_detect.c"
 set C_SRCS=%C_SRCS% "%SRC_APP%\panels.c"
+set C_SRCS=%C_SRCS% "%SRC_APP%\cli.c"
 set C_SRCS=%C_SRCS% "%SRC_APP%\main.c"
 
 :: ── Compile C++ ────────────────────────────────────────────────────
@@ -67,7 +70,7 @@ if %errorlevel% neq 0 (
 :: ── Link ───────────────────────────────────────────────────────────
 echo --- Linking ---
 set OBJS=%OUTDIR%\*.obj
-set LIBS=d3d11.lib dxgi.lib user32.lib gdi32.lib shell32.lib dwmapi.lib bthprops.lib ole32.lib propsys.lib
+set LIBS=d3d11.lib dxgi.lib user32.lib gdi32.lib shell32.lib dwmapi.lib bthprops.lib ole32.lib propsys.lib advapi32.lib
 link /nologo /subsystem:windows /out:"%EXE%" %OUTDIR%\*.obj %LIBS%
 if %errorlevel% neq 0 (
     echo Link FAILED

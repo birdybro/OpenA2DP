@@ -36,8 +36,9 @@ Layered design with four modules:
 
 ```
 app/          UI, windowing, D3D11 rendering, cimgui panels, log view
-  main.c        Win32 entry point, message loop, device scan, periodic save
+  main.c        Win32 entry point, message loop, device scan, periodic save, CLI dispatch
   panels.c/h    All UI panels (device list, settings, status, log)
+  cli.c         Headless command-line action runner (--reconnect/--disable-hfp/--enable-a2dp)
   renderer.cpp/h  D3D11 + ImGui backend wrapper (C++ with extern "C" API)
 
 core/         Enums, structs, config, validation, serialization
@@ -50,6 +51,8 @@ service/      Device enumeration, notifications, runtime status, actions
   audio_status.cpp  Audio endpoint query via MMDevice/WASAPI (C++)
   actions.c         Reconnect/reset/service toggle (async, threaded)
   auto_heal.c       Connect-but-no-audio watchdog (async, threaded)
+  hfp_watchdog.c    Periodic Handsfree re-disable (idempotent, fired from main loop)
+  driver_detect.c   Read-only SCM scan for A2DP-related services at startup
 
 include/      Shared C headers (oa2dp_types.h, oa2dp_config.h, etc.)
 third_party/  cimgui (git submodule)
@@ -97,10 +100,10 @@ v0.1 (complete):
 9. ~~Persistence (profile save/load)~~
 10. ~~Driver evaluation~~ — see [docs/driver-evaluation.md](docs/driver-evaluation.md). Decision: stay user-mode, no KMDF.
 
-v0.2 (in progress):
+v0.2 (complete):
 
 - ~~Auto-heal: connect-but-no-audio watchdog (per-device opt-in)~~
-- HFP-watchdog: poll + re-disable Handsfree if it gets re-enabled
-- CLI mode (`--disable-hfp <addr>`, `--reconnect <addr>`) for Task Scheduler use
-- Honest status panel: drop the hard-coded SBC/bitpool fields in `device_enum.c` and only show measured values
-- Detect Alternative A2DP Driver presence (read-only)
+- ~~HFP watchdog: periodic re-disable of Handsfree, per-device opt-in~~
+- ~~CLI mode (`--reconnect`, `--disable-hfp`, `--enable-a2dp`) for Task Scheduler use~~
+- ~~Honest status panel: dropped hard-coded SBC/bitpool fields, only show measured WASAPI values~~
+- ~~A2DP driver detection (read-only): logs all SCM services with "a2dp" in name/display name at startup~~

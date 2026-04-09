@@ -193,6 +193,9 @@ int oa2dp_profile_save(const char *path, const OA2DP_DeviceProfile *p)
     fprintf(f, "\n[auto_heal]\n");
     fprintf(f, "auto_heal_enabled = %d\n",   p->auto_heal_enabled);
 
+    fprintf(f, "\n[hfp_watchdog]\n");
+    fprintf(f, "hfp_watchdog_enabled = %d\n", p->hfp_watchdog_enabled);
+
     fclose(f);
     oa2dp_log(OA2DP_LOG_INFO, "config: saved profile for '%s' to '%s'",
               p->display_name, path);
@@ -260,6 +263,8 @@ int oa2dp_profile_load(const char *path, OA2DP_DeviceProfile *p)
             p->auto_reduce_bitpool = atoi(val);
         else if (strcmp(key, "auto_heal_enabled") == 0)
             p->auto_heal_enabled = atoi(val);
+        else if (strcmp(key, "hfp_watchdog_enabled") == 0)
+            p->hfp_watchdog_enabled = atoi(val);
     }
 
     fclose(f);

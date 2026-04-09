@@ -94,6 +94,7 @@ typedef struct OA2DP_DeviceProfile {
     int bitpool;
     int auto_reduce_bitpool;
     int auto_heal_enabled;   /* if set, auto-reconnect when device connects but no audio endpoint appears */
+    int hfp_watchdog_enabled; /* if set, periodically re-disable Handsfree to prevent it being turned back on */
 } OA2DP_DeviceProfile;
 
 /* ── Runtime device status (read-only, from system) ─────────────────── */

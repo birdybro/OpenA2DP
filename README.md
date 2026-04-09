@@ -12,6 +12,9 @@ A minimal Windows Bluetooth A2DP control tool. Manage your Bluetooth stereo audi
 - **Reconnect / Reset** -- Toggle A2DP AudioSink and Handsfree services to fix connection issues
 - **Manual service control** -- Enable/disable AudioSink (A2DP) and Handsfree (HFP) individually to prevent unwanted profile switching
 - **Auto-Heal** -- Optional per-device watchdog that detects the Windows 11 "connected but no audio" bug and automatically cycles AudioSink to recover
+- **HFP Watchdog** -- Optional per-device watchdog that periodically re-disables Handsfree (HFP) so Windows can't fall back to narrowband mono SCO
+- **CLI mode** -- Headless command-line entry points (`--reconnect`, `--disable-hfp`, `--enable-a2dp`) for Task Scheduler or login scripts
+- **Driver detection** -- Logs all A2DP-related services found in the Windows SCM at startup so you can see whether you're on the Microsoft stack or a third-party one
 - **Diagnostic logging** -- Color-coded severity levels, filterable, with auto-scroll
 - **Persistent settings** -- Profiles auto-save to `%APPDATA%\OpenA2DP\` and reload on startup
 
@@ -50,6 +53,20 @@ tests\build_and_test.bat
 5. Use **Reconnect** to re-establish the A2DP connection, or **Reset** to cycle all audio services
 6. Use the **Services** section to manually enable/disable AudioSink or Handsfree
 7. Optionally enable **Auto-Heal** to automatically recover from connect-but-no-audio failures on next connect
+8. Optionally enable **HFP Watchdog** to keep Handsfree disabled (recommended for headphones-only use)
+
+### Command-line use
+
+OpenA2DP can also run headlessly for scripting and Task Scheduler use:
+
+```
+OpenA2DP.exe --reconnect AA:BB:CC:DD:EE:FF
+OpenA2DP.exe --disable-hfp AA:BB:CC:DD:EE:FF
+OpenA2DP.exe --enable-a2dp AA:BB:CC:DD:EE:FF
+OpenA2DP.exe --help
+```
+
+When launched from a terminal, output goes to that terminal. When launched from Task Scheduler or Explorer with no parent console, the action runs silently and the process exits.
 
 ## Architecture
 
@@ -74,7 +91,7 @@ Written in C with minimal C++ only where required (COM APIs, ImGui backends). Se
 
 ## Known Limitations
 
-- **Codec detection**: Windows does not expose A2DP codec negotiation parameters (bitpool, subbands, allocation method) in user mode. These fields show defaults rather than actual negotiated values.
+- **Codec detection**: Windows does not expose A2DP codec negotiation parameters (active codec, bitpool, subbands, allocation method) in user mode. The status panel only shows fields that come from real WASAPI measurements; codec-internal fields are intentionally omitted rather than fabricated. See [docs/driver-evaluation.md](docs/driver-evaluation.md) for details.
 - **Bluetooth stack dependency**: Service toggle behavior depends on the Windows Bluetooth driver stack. Some devices or drivers may not respond to `BluetoothSetServiceState` as expected.
 
 ## License

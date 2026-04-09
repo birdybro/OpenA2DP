@@ -231,12 +231,17 @@ static void draw_settings(OA2DP_UIState *ui)
 
     igSeparator();
 
-    /* Auto-heal toggle */
+    /* Watchdogs */
     {
-        igText("Auto-Heal");
+        igText("Watchdogs");
+
         bool ah = (bool)p->auto_heal_enabled;
-        if (igCheckbox("Reconnect on connect-but-no-audio", &ah))
+        if (igCheckbox("Auto-Heal: reconnect on connect-but-no-audio", &ah))
             p->auto_heal_enabled = ah;
+
+        bool hw = (bool)p->hfp_watchdog_enabled;
+        if (igCheckbox("HFP Watchdog: keep Handsfree disabled", &hw))
+            p->hfp_watchdog_enabled = hw;
     }
 }
 
@@ -261,19 +266,24 @@ static void draw_status(OA2DP_UIState *ui)
 
     igSeparator();
 
-    /* Two-column layout for status fields */
+    /* Two-column layout for status fields.
+     *
+     * We only render fields we can actually measure.  Codec and the
+     * SBC-internal parameters (bitpool, subbands, allocation method)
+     * are not exposed by any user-mode Windows API, so we don't
+     * pretend to know them — see docs/driver-evaluation.md.  The
+     * sample rate / bit depth / channels come from WASAPI's mix
+     * format and are real. */
     ImVec2_c tbl_size = { 0, 0 };
     if (igBeginTable("##statustbl", 2, ImGuiTableFlags_None, tbl_size, 0)) {
         igTableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 140, 0);
         igTableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 0, 0);
 
-        igTableNextRow(0, 0);
-        igTableNextColumn(); igText("Active Codec");
-        igTableNextColumn(); igText("%s", codec_labels[s->active_codec]);
-
-        igTableNextRow(0, 0);
-        igTableNextColumn(); igText("Sample Rate");
-        igTableNextColumn(); igText("%d Hz", s->sample_rate);
+        if (s->sample_rate > 0) {
+            igTableNextRow(0, 0);
+            igTableNextColumn(); igText("Sample Rate");
+            igTableNextColumn(); igText("%d Hz", s->sample_rate);
+        }
 
         if (s->bit_depth > 0) {
             igTableNextRow(0, 0);
@@ -281,40 +291,30 @@ static void draw_status(OA2DP_UIState *ui)
             igTableNextColumn(); igText("%d-bit", s->bit_depth);
         }
 
-        igTableNextRow(0, 0);
-        igTableNextColumn(); igText("Channels");
-        igTableNextColumn(); igText("%d", s->channels);
-
-        /* SBC-specific fields */
-        if (s->active_codec == OA2DP_CODEC_SBC) {
+        if (s->channels > 0) {
             igTableNextRow(0, 0);
-            igTableNextColumn(); igText("Stereo Mode");
-            igTableNextColumn(); igText("%s", stereo_labels[s->stereo_mode]);
-
-            igTableNextRow(0, 0);
-            igTableNextColumn(); igText("Block Size");
-            igTableNextColumn(); igText("%s", block_labels[s->block_size]);
-
-            igTableNextRow(0, 0);
-            igTableNextColumn(); igText("Allocation");
-            igTableNextColumn(); igText("%s", alloc_labels[s->allocation_method]);
-
-            igTableNextRow(0, 0);
-            igTableNextColumn(); igText("Subbands");
-            igTableNextColumn(); igText("%s", subband_labels[s->subbands]);
-
-            igTableNextRow(0, 0);
-            igTableNextColumn(); igText("Bitpool");
-            igTableNextColumn(); igText("%d", s->bitpool);
+            igTableNextColumn(); igText("Channels");
+            igTableNextColumn(); igText("%d", s->channels);
         }
 
         if (s->estimated_bitrate_kbps > 0) {
             igTableNextRow(0, 0);
-            igTableNextColumn(); igText("Est. Bitrate");
+            igTableNextColumn(); igText("Endpoint Bitrate");
             igTableNextColumn(); igText("%d kbps", s->estimated_bitrate_kbps);
         }
 
         igEndTable();
+    }
+
+    /* If connected but WASAPI never gave us anything, say so explicitly
+     * rather than showing an empty panel.  This is the symptom that
+     * auto-heal looks for. */
+    if (s->connection == OA2DP_CONN_CONNECTED && s->sample_rate == 0) {
+        igSeparator();
+        ImVec4_c warn = { 1.0f, 0.8f, 0.0f, 1.0f };
+        igTextColored(warn, "Connected but no audio endpoint visible to WASAPI.");
+        igTextWrapped("This is the Windows 11 \"connected-but-silent\" bug. "
+                      "Enable Auto-Heal in Settings, or click Reconnect.");
     }
 }
 
