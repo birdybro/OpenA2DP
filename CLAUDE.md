@@ -49,6 +49,7 @@ service/      Device enumeration, notifications, runtime status, actions
   device_enum.c     Bluetooth device scan/refresh via BluetoothAPIs
   audio_status.cpp  Audio endpoint query via MMDevice/WASAPI (C++)
   actions.c         Reconnect/reset/service toggle (async, threaded)
+  auto_heal.c       Connect-but-no-audio watchdog (async, threaded)
 
 include/      Shared C headers (oa2dp_types.h, oa2dp_config.h, etc.)
 third_party/  cimgui (git submodule)
@@ -73,22 +74,33 @@ Data flows top-down: `app` calls `service`, `service` uses `core`. C++ files (re
 - **Device scan**: `BluetoothFindFirstDevice`/`BluetoothFindNextDevice`, filtered by Class of Device audio bits
 - **Status refresh**: `BluetoothGetDeviceInfo` for connection state, MMDevice `IAudioClient::GetMixFormat` for audio endpoint data
 - **Reconnect/reset**: `BluetoothSetServiceState` to toggle AudioSink/Handsfree services, with retry logic
+- **Auto-heal**: Per-device opt-in (`auto_heal_enabled` in profile). Triggered from `oa2dp_device_refresh_status` on a disconnected→connected transition. Worker thread waits a settle period, probes WASAPI via `oa2dp_audio_status_query`, and runs a synchronous reconnect cycle if no endpoint is found, with a hard attempt cap. Skips attempts when `oa2dp_action_busy()` is set so it can't race a manual button click. Single-slot via its own busy flag.
 - **Config persistence**: INI files via `oa2dp_profile_save`/`oa2dp_profile_load`, dirty detection via memcmp snapshot
 - **Logging**: Ring buffer (1024 entries), severity-filtered UI with auto-scroll
 
 ## Logging
 
-All code paths must log: startup/shutdown, device changes, profile load/save, reconnect/reset actions, API failures. Use timestamps, severity levels, and an in-memory ring buffer. File logging is deferred.
+All code paths must log: startup/shutdown, device changes, profile load/save, reconnect/reset actions, auto-heal triggers/results, API failures. Use timestamps, severity levels, and an in-memory ring buffer. File logging is deferred.
 
-## Implementation Status (v0.1)
+## Implementation Status
 
-1. ~~Repo skeleton~~ (done)
-2. ~~Core structs and config~~ (done)
-3. ~~Win32 + D3D11 + cimgui shell~~ (done)
-4. ~~Static mock UI~~ (done)
-5. ~~Device enumeration~~ (done)
-6. ~~Status panel~~ (done)
-7. ~~Logging panel~~ (done)
-8. ~~Reconnect/reset action~~ (done)
-9. ~~Persistence (profile save/load)~~ (done)
-10. Evaluate driver need
+v0.1 (complete):
+
+1. ~~Repo skeleton~~
+2. ~~Core structs and config~~
+3. ~~Win32 + D3D11 + cimgui shell~~
+4. ~~Static mock UI~~
+5. ~~Device enumeration~~
+6. ~~Status panel~~
+7. ~~Logging panel~~
+8. ~~Reconnect/reset action~~
+9. ~~Persistence (profile save/load)~~
+10. ~~Driver evaluation~~ — see [docs/driver-evaluation.md](docs/driver-evaluation.md). Decision: stay user-mode, no KMDF.
+
+v0.2 (in progress):
+
+- ~~Auto-heal: connect-but-no-audio watchdog (per-device opt-in)~~
+- HFP-watchdog: poll + re-disable Handsfree if it gets re-enabled
+- CLI mode (`--disable-hfp <addr>`, `--reconnect <addr>`) for Task Scheduler use
+- Honest status panel: drop the hard-coded SBC/bitpool fields in `device_enum.c` and only show measured values
+- Detect Alternative A2DP Driver presence (read-only)
