@@ -36,7 +36,9 @@ If you'd rather track the bleeding edge, every push to `main` produces a fresh b
 
 ## Screenshot
 
-*Coming soon*
+![OpenA2DP main window showing device list, A2DP stack control, codec settings, status panel, and log](screenshot.png)
+
+The main window with a Pixel Buds Pro 2 selected on the Alternative A2DP Driver stack: device list and A2DP service control on the left, codec settings (SBC at the device's safe max bitpool of 37, sample rates, stereo mode, allocation method, subbands, ABR), and the watchdog toggles in the middle, full status panel on the right showing the matched WASAPI endpoint, installed Bluetooth services, real codec parameters and live bitrate, recent connection history, and the diagnostic log at the bottom.
 
 ## Building
 
