@@ -33,8 +33,23 @@
  *   SbcSubbands:          bit0=8, bit1=4
  *   SbcBlockLength:       bit0=16, bit1=12, bit2=8, bit3=4
  *
- * AAC bit assignments not yet decoded — Kevin's device was on SBC
- * during the probe so we don't have a known-good Current value.
+ * AAC bit assignments confirmed 2026-04-09 against Kevin's
+ * Pixel Buds Pro 2 once we got him to actually disconnect/reconnect
+ * for the AAC switch to apply:
+ *
+ *   AacChannelMode:       bit2=stereo (2ch), bit3=mono (1ch)
+ *                         (note: SBC uses bits 0-3 for joint/stereo/
+ *                          dual/mono, so AAC's 2-channel sits at
+ *                          bit 2 — not bit 0 or 1)
+ *   AacSamplingFrequency: 12-bit field, lowest bit = highest rate:
+ *                         bit0=96k, bit1=88.2k, bit2=64k, bit3=48k,
+ *                         bit4=44.1k, bit5=32k, bit6=24k, bit7=22.05k,
+ *                         bit8=16k, bit9=12k, bit10=11.025k, bit11=8k
+ *
+ * The general Current.Bitrate field holds the live over-the-air bps
+ * for whichever codec is active (SBC or AAC).  Current.AacBitrate
+ * appears to always be 0 — the driver only populates the SBC-named
+ * Bitrate field for both codecs.
  *
  * Read works as a normal user.  Write requires elevation (Phase 2).
  */

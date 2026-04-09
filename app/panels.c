@@ -532,6 +532,14 @@ static void draw_status(OA2DP_UIState *ui)
             igTableNextColumn(); igText("%d kbps", s->estimated_bitrate_kbps);
         }
 
+        /* Codec bitrate from Alt A2DP Driver registry — distinct
+         * from the WASAPI mix-format rate above. */
+        if (s->codec_bitrate_kbps > 0) {
+            igTableNextRow(0, 0);
+            igTableNextColumn(); igText("Codec Bitrate");
+            igTableNextColumn(); igText("%d kbps", s->codec_bitrate_kbps);
+        }
+
         igEndTable();
     }
 

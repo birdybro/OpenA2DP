@@ -150,6 +150,14 @@ typedef struct OA2DP_DeviceStatus {
      * by the background probe.  -1 = not probed yet, -2 = device
      * doesn't expose a battery property to Windows. */
     int battery_pct;
+
+    /* Live over-the-air codec bitrate in kbps from Alternative A2DP
+     * Driver's Current.Bitrate registry value (or Capability ceiling
+     * for AAC, since the driver doesn't populate AacBitrate in
+     * Current).  0 = unknown / not on Alt A2DP Driver / device
+     * silent.  Distinct from estimated_bitrate_kbps which is the
+     * post-decode WASAPI mix-format rate. */
+    int codec_bitrate_kbps;
 } OA2DP_DeviceStatus;
 
 /* ── Single log entry ───────────────────────────────────────────────── */
