@@ -41,16 +41,22 @@ tests\build_and_test.bat
 Layered design with four modules:
 
 ```
-app/          UI, windowing, D3D11 rendering, cimgui panels, log view
-  main.c        Win32 entry point, message loop, device scan, periodic save, CLI dispatch
-  panels.c/h    All UI panels (device list, settings, status, log)
-  cli.c         Headless command-line action runner (--reconnect/--disable-hfp/--enable-a2dp)
+app/          UI, windowing, D3D11 rendering, cimgui panels, tray icon
+  main.c        wmain (CLI entry) and wWinMain (GUI entry); message loop;
+                device scan; periodic save; HFP watchdog tick; window state save
+  panels.c/h    All UI panels (device list, A2DP stacks, settings, status,
+                connection history, activity counters, log)
+  cli.c         Headless command-line action runner — listing, reconnect,
+                stack switch, service start/stop
+  tray.c        Shell_NotifyIcon, popup menu, balloon-tip notifications
   renderer.cpp/h  D3D11 + ImGui backend wrapper (C++ with extern "C" API)
 
 core/         Enums, structs, config, validation, serialization
-  config.c      INI-style profile save/load, config directory management
+  config.c      INI-style profile save/load, window state, config directory
   validation.c  Safe defaults, value clamping
   log.c         In-memory ring buffer logger
+  stats.c       In-memory atomic activity counters
+  history.c     Per-device connect/disconnect history file IO
 
 service/      Device enumeration, notifications, runtime status, actions
   device_enum.c     Bluetooth device scan/refresh via BluetoothAPIs
@@ -58,7 +64,9 @@ service/      Device enumeration, notifications, runtime status, actions
   actions.c         Reconnect/reset/service toggle (async, threaded)
   auto_heal.c       Connect-but-no-audio watchdog (async, threaded)
   hfp_watchdog.c    Periodic Handsfree re-disable (idempotent, fired from main loop)
-  driver_detect.c   Read-only SCM scan for A2DP-related services at startup
+  driver_control.c  SCM scan + service start/stop + stack switch worker
+  device_probe.c    Background worker for slow Bluetooth APIs (installed
+                    services + battery via SetupAPI)
 
 include/      Shared C headers (oa2dp_types.h, oa2dp_config.h, etc.)
 third_party/  cimgui (git submodule)
@@ -84,9 +92,17 @@ Data flows top-down: `app` calls `service`, `service` uses `core`. C++ files (re
 - **Status refresh**: `BluetoothGetDeviceInfo` for connection state, MMDevice `IAudioClient::GetMixFormat` for audio endpoint data
 - **Endpoint matching**: `oa2dp_audio_status_query` does two passes — first looks for the BT address (lowercase, no separators) inside the WASAPI endpoint device ID (works for the Microsoft stack), then falls back to substring-matching the device's display name against `PKEY_Device_FriendlyName` (works for Alternative A2DP Driver and other stacks that don't embed the address in IDs). On a complete miss it dumps all enumerated render endpoints to the log so the matcher can be iterated on real data.
 - **Reconnect/reset**: `BluetoothSetServiceState` to toggle AudioSink/Handsfree services, with retry logic
-- **Auto-heal**: Per-device opt-in (`auto_heal_enabled` in profile). Triggered from `oa2dp_device_refresh_status` on a disconnected→connected transition. Worker thread waits a settle period, probes WASAPI via `oa2dp_audio_status_query`, and runs a synchronous reconnect cycle if no endpoint is found, with a hard attempt cap. Skips attempts when `oa2dp_action_busy()` is set so it can't race a manual button click. Single-slot via its own busy flag.
+- **Auto-heal**: Per-device opt-in (`auto_heal_enabled` in profile). Triggered from `oa2dp_device_refresh_status` on a disconnected→connected transition. Worker thread waits a settle period, probes WASAPI via `oa2dp_audio_status_query`, and runs a synchronous reconnect cycle if no endpoint is found, with a hard attempt cap. Skips attempts when `oa2dp_action_busy()` is set so it can't race a manual button click. Single-slot via its own busy flag. Fires `oa2dp_tray_notify` on real recovery (not on healthy connects, which would be too noisy) and on give-up.
+- **HFP watchdog**: Per-device opt-in (`hfp_watchdog_enabled`). `oa2dp_hfp_watchdog_tick` is called every 30s from the main loop and fires async Handsfree-disable on connected, opted-in devices. Idempotent: re-disabling an already-off service is a no-op at the API level. One device per tick (single-slot async actions).
+- **A2DP stack control**: `service/driver_control.c` enumerates SCM services with `EnumServicesStatusExW(SERVICE_WIN32 | SERVICE_DRIVER)` looking for "a2dp" in name or display name. `oa2dp_driver_start`/`_stop` open the service with `SERVICE_START`/`SERVICE_STOP`, then poll state with a 10s budget. `ERROR_ACCESS_DENIED` is logged with an explicit "relaunch as Administrator" hint. `oa2dp_stack_switch_async`/`_sync` orchestrate stop-other / start-target / reconnect-each-device on a single-slot worker; `oa2dp_process_is_elevated` (cached `TokenElevation` check) lets the UI grey out the buttons in non-elevated processes.
+- **Background device probe**: `service/device_probe.c` is the off-thread home for Bluetooth APIs that block. Calls `BluetoothEnumerateInstalledServices` (which previously hung the UI when called inline — see commit 1af9b66) and reads `DEVPKEY_Bluetooth_Battery` via SetupAPI. Writes results back to the status struct atomically. Single-slot, triggered after the initial scan and after every device-change rescan.
+- **System tray**: `app/tray.c` adds a `Shell_NotifyIcon` and routes a custom `OA2DP_WM_TRAY` callback through the main WndProc. Right-click builds a fresh popup menu each time so it reflects current device/stack state. Minimize button hides to tray (`SC_MINIMIZE` intercepted in WndProc). `oa2dp_tray_notify` uses `NIM_MODIFY` with `NIF_INFO` for balloon notifications.
+- **CLI mode**: Two binaries from one .obj set (see Building section). `oa2dp_cli_run` in `app/cli.c` dispatches `--reconnect` / `--disable-hfp` / `--enable-a2dp` / `--list-devices` / `--list-stacks` / `--switch-stack ms|alt` / `--start-service` / `--stop-service`. Stack switch and service start/stop check `oa2dp_process_is_elevated` and refuse with a clear error when not admin.
+- **Stats counters**: `core/stats.c` keeps in-memory atomic counters (`InterlockedIncrement`) for reconnects, auto-heal triggers/recoveries/failures, HFP watchdog fires, and stack switches. Per-session, not persisted. Displayed as a footer in the device list panel.
+- **Connection history**: `core/history.c` appends each connect/disconnect transition (from `device_enum.c`) to `%APPDATA%\OpenA2DP\<addr>.history` as a timestamped line. Auto-prunes the oldest half when over 200 lines. Status panel renders the most recent 12 events for the selected device.
+- **Window state**: `oa2dp_window_state_save`/`_load` in `core/config.c` persist the window rect to `window.ini`. Saved on shutdown via `GetWindowPlacement` (so the captured rect is the "normal" position even when minimized to tray). Loaded before `CreateWindowW`.
 - **Config persistence**: INI files via `oa2dp_profile_save`/`oa2dp_profile_load`, dirty detection via memcmp snapshot
-- **Logging**: Ring buffer (1024 entries), severity-filtered UI with auto-scroll
+- **Logging**: Ring buffer (1024 entries), severity-filtered UI with auto-scroll, "Copy to Clipboard" button for issue dumps
 
 ## Logging
 
@@ -114,3 +130,17 @@ v0.2 (complete):
 - ~~CLI mode (`--reconnect`, `--disable-hfp`, `--enable-a2dp`) for Task Scheduler use~~
 - ~~Honest status panel: dropped hard-coded SBC/bitpool fields, only show measured WASAPI values~~
 - ~~A2DP driver detection (read-only): logs all SCM services with "a2dp" in name/display name at startup~~
+
+v0.3 (complete):
+
+- ~~A2DP stack control: Start/Stop and one-click "Switch to Microsoft" / "Switch to Alternative" with elevation detection~~
+- ~~System tray icon with right-click menu for Reconnect / Disable HFP / Switch Stack / Show / Quit~~
+- ~~Stack switch worker that stops the wrong-stack services, starts the right ones, then reconnects each device~~
+- ~~Window state persistence (size + position via `GetWindowPlacement`)~~
+- ~~More CLI commands: `--list-devices`, `--list-stacks`, `--switch-stack`, `--start-service`, `--stop-service`~~
+- ~~Toast notifications on auto-heal recovery and failure (`oa2dp_tray_notify` via `NIM_MODIFY` + `NIF_INFO`)~~
+- ~~Two-binary build: `OpenA2DP.exe` (`/SUBSYSTEM:WINDOWS`) and `OpenA2DP-cli.exe` (`/SUBSYSTEM:CONSOLE`)~~
+- ~~Status panel: BT address, matched WASAPI endpoint name, active stack inference~~
+- ~~In-memory activity counters (reconnects, heal triggers/recoveries/failures, HFP watchdog, stack switches)~~
+- ~~Persistent per-device connection history (`%APPDATA%\OpenA2DP\<addr>.history`)~~
+- ~~Background device probe for slow Bluetooth APIs (installed services + battery via SetupAPI)~~

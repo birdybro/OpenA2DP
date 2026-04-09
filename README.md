@@ -11,15 +11,19 @@ A minimal **Windows-only** Bluetooth A2DP control tool. Manage your Bluetooth st
 
 - **Device discovery** -- Lists paired Bluetooth audio devices with live connection status
 - **Per-device profiles** -- Configure preferred codec, sample rates, channel modes, and SBC parameters per device
-- **Audio endpoint status** -- Shows real sample rate, bit depth, and channel count from the Windows audio stack
+- **Audio endpoint status** -- Shows real sample rate, bit depth, channel count, and matched WASAPI endpoint name
+- **Battery level** -- Reads `DEVPKEY_Bluetooth_Battery` via SetupAPI on a background thread (when the device exposes it to Windows)
 - **Reconnect / Reset** -- Toggle A2DP AudioSink and Handsfree services to fix connection issues
 - **Manual service control** -- Enable/disable AudioSink (A2DP) and Handsfree (HFP) individually to prevent unwanted profile switching
-- **Auto-Heal** -- Optional per-device watchdog that detects the Windows 11 "connected but no audio" bug and automatically cycles AudioSink to recover
+- **Auto-Heal** -- Optional per-device watchdog that detects the Windows 11 "connected but no audio" bug and automatically cycles AudioSink to recover (with toast notification on success/failure)
 - **HFP Watchdog** -- Optional per-device watchdog that periodically re-disables Handsfree (HFP) so Windows can't fall back to narrowband mono SCO
-- **CLI mode** -- Headless command-line entry points (`--reconnect`, `--disable-hfp`, `--enable-a2dp`) for Task Scheduler or login scripts
-- **Driver detection** -- Logs all A2DP-related services found in the Windows SCM at startup so you can see whether you're on the Microsoft stack or a third-party one
-- **Diagnostic logging** -- Color-coded severity levels, filterable, with auto-scroll
-- **Persistent settings** -- Profiles auto-save to `%APPDATA%\OpenA2DP\` and reload on startup
+- **A2DP stack control** -- Detects every A2DP-related service in the Windows SCM (Microsoft `BthA2dp`, Alternative A2DP Driver, etc.) and lets you Start/Stop them or one-click switch the entire active stack (needs admin)
+- **System tray** -- Notification-area icon with right-click menu for Reconnect, Disable HFP, Switch Stack, Show/Hide window, Quit. Minimize-to-tray on the minimize button.
+- **CLI mode** -- Separate `OpenA2DP-cli.exe` for headless scripting: `--reconnect`, `--disable-hfp`, `--enable-a2dp`, `--list-devices`, `--list-stacks`, `--switch-stack`, `--start-service`, `--stop-service`
+- **Connection history** -- Persistent per-device timestamped connect/disconnect log in `%APPDATA%\OpenA2DP\<addr>.history`, last 12 events shown in the status panel
+- **Activity counters** -- Per-session running totals of reconnects, auto-heal triggers/recoveries/failures, HFP watchdog actions, and stack switches
+- **Diagnostic logging** -- Color-coded severity levels, filterable, with auto-scroll, and a one-click "Copy to Clipboard" for issue reports
+- **Persistent settings** -- Per-device profiles, window position/size, and connection history all auto-save to `%APPDATA%\OpenA2DP\` and reload on startup
 
 ## Screenshot
 
@@ -61,6 +65,8 @@ tests\build_and_test.bat
 6. Use the **Services** section to manually enable/disable AudioSink or Handsfree
 7. Optionally enable **Auto-Heal** to automatically recover from connect-but-no-audio failures on next connect
 8. Optionally enable **HFP Watchdog** to keep Handsfree disabled (recommended for headphones-only use)
+9. **Right-click the tray icon** for quick access to Reconnect, Disable HFP, and Switch Stack without opening the window
+10. To switch between A2DP stacks (e.g. Microsoft `BthA2dp` ↔ Alternative A2DP Driver), launch `OpenA2DP.exe` **as Administrator** and use the **Use Microsoft / Use Alternative** buttons in the A2DP Stacks panel
 
 ### Command-line use
 
@@ -84,9 +90,10 @@ The CLI binary is a separate `/SUBSYSTEM:CONSOLE` executable so cmd.exe and Powe
 ## Architecture
 
 ```
-app/        UI (Win32 + D3D11 + cimgui), window management
-core/       Types, config (INI), validation, logging (ring buffer)
-service/    Bluetooth device enumeration, audio status, reconnect/reset, auto-heal
+app/        UI (Win32 + D3D11 + cimgui), window management, tray icon, CLI dispatch
+core/       Types, config (INI), validation, logging (ring buffer), stats counters, history
+service/    Bluetooth device enumeration, audio status, reconnect/reset, auto-heal,
+            HFP watchdog, A2DP stack control, background device probe
 include/    Shared C headers
 third_party/  cimgui (Dear ImGui C bindings)
 ```
@@ -100,11 +107,16 @@ Written in C with minimal C++ only where required (COM APIs, ImGui backends). Se
 - **Reconnect**: Toggles the A2DP AudioSink service off then back on via `BluetoothSetServiceState`, with retry logic
 - **Reset**: Cycles both Handsfree and AudioSink services, re-establishing AudioSink last so A2DP takes priority
 - **Auto-Heal**: When opted in per device, watches for connect transitions and probes WASAPI for a render endpoint after a short settle. If the endpoint is missing it runs a reconnect cycle, retrying up to a hard cap. Skips when a manual action is in flight to avoid races. See [docs/driver-evaluation.md](docs/driver-evaluation.md) for the design rationale.
-- **Persistence**: Per-device INI files in `%APPDATA%\OpenA2DP\`, dirty-detected and auto-saved every few seconds
+- **Background device probe**: Slow Bluetooth APIs (`BluetoothEnumerateInstalledServices`, SetupAPI battery property reads) run on a single-slot worker thread, never on the UI thread, because they can block for seconds and freeze the window. Results trickle into the status struct and are picked up by the next UI frame.
+- **A2DP stack control**: Enumerates Win32 services and kernel drivers via the SCM (`EnumServicesStatusExW`) and matches anything containing "a2dp" in name or display name. Start/Stop go through `StartServiceW` / `ControlService(SERVICE_CONTROL_STOP)` with state-poll waits. Stack switching runs the stop/start sequence on a background worker, then issues a synchronous reconnect cycle for every connected device so they re-bind to the new stack.
+- **Persistence**: Per-device INI files in `%APPDATA%\OpenA2DP\`, dirty-detected and auto-saved every few seconds. Window position/size in `window.ini`. Connection history in `<addr>.history`.
 
 ## Known Limitations
 
 - **Codec detection**: Windows does not expose A2DP codec negotiation parameters (active codec, bitpool, subbands, allocation method) in user mode. The status panel only shows fields that come from real WASAPI measurements; codec-internal fields are intentionally omitted rather than fabricated. See [docs/driver-evaluation.md](docs/driver-evaluation.md) for details.
+- **Battery**: Only shows up if the device exposes battery via `DEVPKEY_Bluetooth_Battery` to the Windows BT stack. Many headphones don't, in which case the row is omitted entirely.
+- **Active stack label is machine-wide**: Inferred from which SCM services are running, not from inspecting the audio endpoint of a specific device. If two stacks somehow run simultaneously, OpenA2DP labels it "Multiple stacks running" rather than guessing per-device.
+- **Service control needs admin**: Start/Stop and Switch Stack go through the Service Control Manager which requires elevation. If you launched OpenA2DP normally, those buttons are greyed out and the footer shows "Not elevated — controls disabled". Right-click → Run as administrator to enable them.
 - **Bluetooth stack dependency**: Service toggle behavior depends on the Windows Bluetooth driver stack. Some devices or drivers may not respond to `BluetoothSetServiceState` as expected.
 - **Tested stacks**: Microsoft stock Bluetooth stack and Alternative A2DP Driver (bluetoothgoodies.com). Other third-party stacks should work but are untested — if endpoint detection fails, check the log for the enumerated-endpoints dump and file an issue.
 
