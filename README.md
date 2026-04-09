@@ -1,29 +1,38 @@
 # OpenA2DP
 
-A minimal **Windows-only** Bluetooth A2DP control tool. Manage your Bluetooth stereo audio devices with per-device profiles, live connection status, and diagnostic logging.
+A minimal **Windows-only** Bluetooth A2DP control tool. Manage your Bluetooth stereo audio devices with per-device profiles, live connection status, codec configuration via the Alternative A2DP Driver, and diagnostic logging.
 
+[![Build](https://github.com/birdybro/OpenA2DP/actions/workflows/build.yml/badge.svg)](https://github.com/birdybro/OpenA2DP/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/birdybro/OpenA2DP)](https://github.com/birdybro/OpenA2DP/releases/latest)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue)
 
 > **Windows only.** OpenA2DP is built directly on Win32 Bluetooth APIs, MMDevice/WASAPI, and Direct3D 11. It will not build on Linux or macOS, will not run under WINE, and is not a candidate for a cross-platform port. **Do not file issues about non-Windows platforms** — they will be closed. On Linux, use BlueZ + PipeWire/PulseAudio, which already covers everything this tool does and far more.
 
+## Download
+
+Pre-built binaries are published on the [Releases page](https://github.com/birdybro/OpenA2DP/releases/latest). Each release zip contains both `OpenA2DP.exe` (the GUI) and `OpenA2DP-cli.exe` (the headless CLI). No installer — just unzip and run.
+
+If you'd rather track the bleeding edge, every push to `main` produces a fresh build artifact in the [Actions tab](https://github.com/birdybro/OpenA2DP/actions/workflows/build.yml). Pick the latest run, scroll to "Artifacts", download `OpenA2DP-windows-x64`.
+
 ## Features
 
-- **Device discovery** -- Lists paired Bluetooth audio devices with live connection status
-- **Per-device profiles** -- Configure preferred codec, sample rates, channel modes, and SBC parameters per device
-- **Audio endpoint status** -- Shows real sample rate, bit depth, channel count, and matched WASAPI endpoint name
-- **Battery level** -- Reads `DEVPKEY_Bluetooth_Battery` via SetupAPI on a background thread (when the device exposes it to Windows)
-- **Reconnect / Reset** -- Toggle A2DP AudioSink and Handsfree services to fix connection issues
-- **Manual service control** -- Enable/disable AudioSink (A2DP) and Handsfree (HFP) individually to prevent unwanted profile switching
-- **Auto-Heal** -- Optional per-device watchdog that detects the Windows 11 "connected but no audio" bug and automatically cycles AudioSink to recover (with toast notification on success/failure)
-- **HFP Watchdog** -- Optional per-device watchdog that periodically re-disables Handsfree (HFP) so Windows can't fall back to narrowband mono SCO
-- **A2DP stack control** -- Detects every A2DP-related service in the Windows SCM (Microsoft `BthA2dp`, Alternative A2DP Driver, etc.) and lets you Start/Stop them or one-click switch the entire active stack (needs admin)
-- **System tray** -- Notification-area icon with right-click menu for Reconnect, Disable HFP, Switch Stack, Show/Hide window, Quit. Minimize-to-tray on the minimize button.
-- **CLI mode** -- Separate `OpenA2DP-cli.exe` for headless scripting: `--reconnect`, `--disable-hfp`, `--enable-a2dp`, `--list-devices`, `--list-stacks`, `--switch-stack`, `--start-service`, `--stop-service`
-- **Connection history** -- Persistent per-device timestamped connect/disconnect log in `%APPDATA%\OpenA2DP\<addr>.history`, last 12 events shown in the status panel
-- **Activity counters** -- Per-session running totals of reconnects, auto-heal triggers/recoveries/failures, HFP watchdog actions, and stack switches
-- **Diagnostic logging** -- Color-coded severity levels, filterable, with auto-scroll, and a one-click "Copy to Clipboard" for issue reports
-- **Persistent settings** -- Per-device profiles, window position/size, and connection history all auto-save to `%APPDATA%\OpenA2DP\` and reload on startup
+- **Device discovery** — Lists paired Bluetooth audio devices with live connection status
+- **Live codec settings via Alternative A2DP Driver** — When the [Alternative A2DP Driver](https://www.bluetoothgoodies.com/) is installed, OpenA2DP reads its per-device registry config and lets you edit codec / SBC / AAC parameters live: codec selection (SBC / AAC), SBC channel mode / block size / allocation / subbands / max bitpool, AAC bitrate slider (64–320 kbps), allowed sample rates per codec, and ABR enable. Changes go through Apply / Apply & Reconnect / Discard buttons that write the driver's `Next` registry subkey and trigger a reconnect cycle so the new settings take effect immediately.
+- **Bitpool device-cap safety guard** — The bitpool slider's max defaults to the device's reported `Capability.SbcMaximumBitpool`. Going above the device's claimed max can produce broken audio or damage some Bluetooth chips, so an explicit "Override device max" toggle (admin only) is required to push higher.
+- **Audio endpoint status** — Shows real sample rate, bit depth, channel count, codec bitrate (live over-the-air), and matched WASAPI endpoint name
+- **Battery level** — Reads `DEVPKEY_Bluetooth_Battery` via SetupAPI on a background thread (when the device exposes it to Windows)
+- **Reconnect / Reset** — Toggle A2DP AudioSink and Handsfree services to fix connection issues
+- **Manual service control** — Enable/disable AudioSink (A2DP) and Handsfree (HFP) individually to prevent unwanted profile switching
+- **Auto-Heal** — Optional per-device watchdog that detects the Windows 11 "connected but no audio" bug and automatically cycles AudioSink to recover (with toast notification on success/failure)
+- **HFP Watchdog** — Optional per-device watchdog that periodically re-disables Handsfree (HFP) so Windows can't fall back to narrowband mono SCO
+- **A2DP stack control** — Detects every A2DP-related service in the Windows SCM (Microsoft `BthA2dp`, Alternative A2DP Driver, etc.) and lets you Start/Stop them or one-click switch the entire active stack (needs admin)
+- **System tray** — Notification-area icon with right-click menu for Reconnect, Disable HFP, Switch Stack, Show/Hide window, Quit. Minimize-to-tray on the minimize button.
+- **CLI mode** — Separate `OpenA2DP-cli.exe` for headless scripting: `--reconnect`, `--disable-hfp`, `--enable-a2dp`, `--list-devices`, `--list-stacks`, `--show-codec-config`, `--set-codec`, `--set-bitpool`, `--set-aac-bitrate`, `--switch-stack`, `--start-service`, `--stop-service`, `--probe-registry`
+- **Connection history** — Persistent per-device timestamped connect/disconnect log in `%APPDATA%\OpenA2DP\<addr>.history`, last 12 events shown in the status panel
+- **Activity counters** — Per-session running totals of reconnects, auto-heal triggers/recoveries/failures, HFP watchdog actions, and stack switches
+- **Diagnostic logging** — Color-coded severity levels, filterable, with auto-scroll, and a one-click "Copy to Clipboard" for issue reports
+- **Persistent settings** — Per-device profiles, window position/size, and connection history all auto-save to `%APPDATA%\OpenA2DP\` and reload on startup
 
 ## Screenshot
 
@@ -31,23 +40,34 @@ A minimal **Windows-only** Bluetooth A2DP control tool. Manage your Bluetooth st
 
 ## Building
 
+If you don't want to build from source, just grab the latest [release zip](https://github.com/birdybro/OpenA2DP/releases/latest) — it's signed with nothing fancy but the same binaries CI produces.
+
 ### Requirements
 
 - Windows 10/11
 - Visual Studio 2022+ with **Desktop development with C++** workload
 - Windows SDK
+- Git (for cloning with submodules)
 
 ### Build
 
 ```
+git clone --recurse-submodules https://github.com/birdybro/OpenA2DP.git
+cd OpenA2DP
 scripts\build.bat
 ```
+
+The build script auto-detects whether `cl.exe` is already on `PATH` (developer command prompt or CI environment) and only falls back to a hardcoded `vcvarsall.bat` location for local dev otherwise.
 
 Outputs **two binaries**:
 - `build\OpenA2DP.exe` — the GUI (Windows subsystem, no console flash on launch)
 - `build\OpenA2DP-cli.exe` — the headless command-line tool (Console subsystem, so cmd.exe waits for it properly)
 
 Both share the same object files; the linker just produces two executables with different `/SUBSYSTEM` and entry points.
+
+### Versioning
+
+Version numbers are embedded in both binaries via `scripts/version_gui.rc` and `scripts/version_cli.rc` (right-click → Properties → Details to verify). To bump the version, update both `.rc` files, add a `CHANGELOG.md` entry, then `git tag v0.X.Y && git push --tags`. CI builds the tag, zips both binaries, and attaches the zip to a new GitHub Release automatically.
 
 ### Run Tests
 
