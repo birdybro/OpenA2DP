@@ -429,8 +429,8 @@ static void draw_log(OA2DP_UIState *ui)
 
     igSameLine(0, 4);
     {
-        ImVec2_c btn = { 110, 0 };
-        if (igButton("Copy for Issue", btn)) {
+        ImVec2_c btn = { 130, 0 };
+        if (igButton("Copy to Clipboard", btn)) {
             copy_log_to_clipboard(ui);
             oa2dp_log(OA2DP_LOG_INFO,
                       "log: copied filtered entries to clipboard");
