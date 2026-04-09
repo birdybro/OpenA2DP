@@ -14,13 +14,19 @@
 extern "C" {
 #endif
 
-/* Initialize COM and the audio status subsystem.
- * Call once at startup. Returns 0 on success. */
+/* Initialize COM on the main thread.  Call once at startup. */
 int oa2dp_audio_status_init(void);
 
-/* Shut down the audio status subsystem.
- * Call once at shutdown. */
+/* Shut down COM on the main thread. */
 void oa2dp_audio_status_shutdown(void);
+
+/* Per-thread COM init / shutdown for worker threads that want to call
+ * oa2dp_audio_status_query.  Each call to _thread_init must be paired
+ * with a _thread_shutdown on the same thread.  Failing to call these
+ * leaves the worker thread in an uninitialised apartment, in which
+ * case audio_status_query will fail with -1 (no crash, just no data). */
+int  oa2dp_audio_status_thread_init(void);
+void oa2dp_audio_status_thread_shutdown(void);
 
 /*
  * Query the audio endpoint associated with a Bluetooth device and

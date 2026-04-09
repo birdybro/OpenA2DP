@@ -22,6 +22,8 @@
 
 #include "oa2dp_cli.h"
 #include "oa2dp_actions.h"
+#include "oa2dp_altdriver_config.h"
+#include "oa2dp_config.h"
 #include "oa2dp_device.h"
 #include "oa2dp_driver_control.h"
 #include "oa2dp_log.h"
@@ -43,6 +45,10 @@ static const wchar_t *KNOWN_CMDS[] = {
     L"--start-service",
     L"--stop-service",
     L"--probe-registry",
+    L"--show-codec-config",
+    L"--set-codec",
+    L"--set-bitpool",
+    L"--set-aac-bitrate",
     L"--help",
     L"-h",
     L"/?",
@@ -111,6 +117,12 @@ static void print_usage(void)
         "  --list-devices              List all paired Bluetooth audio devices\n"
         "  --list-stacks               List installed A2DP services and their state\n"
         "  --probe-registry            Dump A2DP-related registry config (read-only)\n"
+        "  --show-codec-config <addr>  Show codec config from Alt A2DP registry\n"
+        "\n"
+        "Codec config (Alt A2DP Driver only, writes need Admin):\n"
+        "  --set-codec <addr> sbc|aac      Switch preferred codec\n"
+        "  --set-bitpool <addr> N          Set SBC max bitpool (clamped to device max)\n"
+        "  --set-aac-bitrate <addr> N      Set AAC bitrate in kbps (64-320)\n"
         "\n"
         "Stack control (require Run as Administrator):\n"
         "  --switch-stack ms|alt       Switch active A2DP stack and reconnect devices\n"
@@ -181,6 +193,143 @@ static int cli_list_stacks(void)
     return 0;
 }
 
+/* ── codec config helpers ───────────────────────────────────────────── */
+
+/* Load (or default) the profile for a device.  Caller must have
+ * already initialized the config dir via oa2dp_config_init. */
+static void cli_load_profile(const char *addr, OA2DP_DeviceProfile *p)
+{
+    oa2dp_profile_defaults(p);
+    snprintf(p->device_id, sizeof(p->device_id), "%s", addr);
+
+    char path[MAX_PATH];
+    if (oa2dp_config_path_for_device(addr, path, sizeof(path)) == 0) {
+        oa2dp_profile_load(path, p);
+        snprintf(p->device_id, sizeof(p->device_id), "%s", addr);
+    }
+}
+
+static int cli_save_profile(const char *addr, const OA2DP_DeviceProfile *p)
+{
+    char path[MAX_PATH];
+    if (oa2dp_config_path_for_device(addr, path, sizeof(path)) != 0)
+        return -1;
+    return oa2dp_profile_save(path, p);
+}
+
+static int cli_show_codec_config(const char *addr)
+{
+    OA2DP_DeviceStatus stat;
+    memset(&stat, 0, sizeof(stat));
+    if (oa2dp_altdriver_read_current(addr, &stat) != 0) {
+        fprintf(stderr,
+                "error: device %s has no Alt A2DP Driver entry "
+                "(driver not installed or device unknown to it)\n", addr);
+        return 1;
+    }
+    oa2dp_altdriver_read_next(addr, &stat);
+
+    OA2DP_DeviceProfile p;
+    cli_load_profile(addr, &p);
+
+    static const char *codec_strs[] = { "Unknown", "SBC", "AAC" };
+    static const char *stereo_strs[] = { "joint", "stereo", "dual" };
+    static const int   block_ints[] = { 4, 8, 12, 16 };
+    static const int   subband_ints[] = { 4, 8 };
+
+    printf("Codec config for %s:\n", addr);
+    printf("\n  [Current — what's negotiated this session]\n");
+    printf("  active codec:   %s\n", codec_strs[stat.active_codec]);
+    if (stat.active_codec == OA2DP_CODEC_SBC) {
+        printf("  stereo mode:    %s\n", stereo_strs[stat.stereo_mode]);
+        printf("  block size:     %d\n", block_ints[stat.block_size]);
+        printf("  allocation:     %s\n",
+               stat.allocation_method == OA2DP_ALLOC_SNR ? "SNR" : "loudness");
+        printf("  subbands:       %d\n", subband_ints[stat.subbands]);
+        printf("  max bitpool:    %d\n", stat.bitpool);
+    }
+    if (stat.codec_bitrate_kbps > 0)
+        printf("  codec bitrate:  %d kbps\n", stat.codec_bitrate_kbps);
+    if (stat.sbc_max_bitpool_capability > 0)
+        printf("  device max bp:  %d (Capability)\n",
+               stat.sbc_max_bitpool_capability);
+
+    printf("\n  [Next — preferences for the next reconnect]\n");
+    if (stat.alt_snapshot_valid) {
+        printf("  preferred:      %s\n",
+               stat.snap_preferred_codec == OA2DP_CODEC_AAC ? "AAC" : "SBC");
+        printf("  sbc rates:      %s%s%s%s\n",
+               stat.snap_allow_48khz   ? "48 " : "",
+               stat.snap_allow_44_1khz ? "44.1 " : "",
+               stat.snap_allow_32khz   ? "32 " : "",
+               stat.snap_allow_16khz   ? "16 " : "");
+        printf("  sbc bitpool:    %d\n", stat.snap_bitpool);
+        printf("  aac stereo:     %d  aac mono: %d\n",
+               stat.snap_aac_allow_stereo, stat.snap_aac_allow_mono);
+        printf("  aac rates:      %s%s\n",
+               stat.snap_aac_allow_48khz   ? "48 " : "",
+               stat.snap_aac_allow_44_1khz ? "44.1" : "");
+        printf("  aac bitrate:    %d kbps\n", stat.snap_aac_bitrate_kbps);
+        printf("  abr:            %d\n", stat.snap_abr_enable);
+    } else {
+        printf("  (snapshot not available)\n");
+    }
+
+    printf("\n  [Profile — saved to %%APPDATA%%\\OpenA2DP\\<addr>.ini]\n");
+    printf("  preferred:      %s\n",
+           p.preferred_codec == OA2DP_CODEC_AAC ? "AAC" : "SBC");
+    printf("  sbc bitpool:    %d  (override device max: %d)\n",
+           p.bitpool, p.sbc_override_device_max);
+    printf("  aac bitrate:    %d kbps\n", p.aac_bitrate_kbps);
+    printf("  abr:            %d\n", p.abr_enable);
+    return 0;
+}
+
+/* Apply a one-field change: load profile, mutate, write registry,
+ * save profile.  Caller has already validated admin elevation. */
+static int cli_apply_one(const char *addr,
+                         void (*mutate)(OA2DP_DeviceProfile *, int),
+                         int arg, const char *what)
+{
+    OA2DP_DeviceProfile p;
+    cli_load_profile(addr, &p);
+
+    /* Read device's Capability bitpool max for the safety clamp. */
+    OA2DP_DeviceStatus stat;
+    memset(&stat, 0, sizeof(stat));
+    oa2dp_altdriver_read_current(addr, &stat);
+
+    mutate(&p, arg);
+
+    if (oa2dp_altdriver_write_next(addr, &p,
+                                   stat.sbc_max_bitpool_capability) != 0) {
+        fprintf(stderr, "OpenA2DP: %s for %s FAILED\n", what, addr);
+        return 1;
+    }
+
+    cli_save_profile(addr, &p);
+    fprintf(stderr, "OpenA2DP: %s for %s OK (reconnect device for it to apply)\n",
+            what, addr);
+    return 0;
+}
+
+static void mut_set_codec_sbc(OA2DP_DeviceProfile *p, int unused) {
+    (void)unused; p->preferred_codec = OA2DP_CODEC_SBC;
+}
+static void mut_set_codec_aac(OA2DP_DeviceProfile *p, int unused) {
+    (void)unused; p->preferred_codec = OA2DP_CODEC_AAC;
+}
+static void mut_set_bitpool(OA2DP_DeviceProfile *p, int v) {
+    if (v < 2)   v = 2;
+    if (v > 250) v = 250;
+    p->bitpool = v;
+}
+static void mut_set_aac_bitrate(OA2DP_DeviceProfile *p, int v) {
+    if (v < 64)  v = 64;
+    if (v > 320) v = 320;
+    p->aac_bitrate_kbps = v;
+}
+
 static int cli_switch_stack(const wchar_t *target_arg)
 {
     if (!oa2dp_process_is_elevated()) {
@@ -240,6 +389,67 @@ int oa2dp_cli_run(int argc, wchar_t **argv)
         return cli_list_devices();
     if (wcscmp(cmd, L"--list-stacks") == 0)
         return cli_list_stacks();
+
+    /* ── Codec config commands ──────────────────────────────────── */
+    if (wcscmp(cmd, L"--show-codec-config") == 0 ||
+        wcscmp(cmd, L"--set-codec") == 0 ||
+        wcscmp(cmd, L"--set-bitpool") == 0 ||
+        wcscmp(cmd, L"--set-aac-bitrate") == 0) {
+
+        if (argc < 3) {
+            fprintf(stderr, "error: %ls needs a Bluetooth address\n", cmd);
+            return 2;
+        }
+        char addr[64];
+        wide_to_utf8(argv[2], addr, sizeof(addr));
+        if (!valid_bt_address(addr)) {
+            fprintf(stderr, "error: '%s' is not a valid Bluetooth address\n", addr);
+            return 2;
+        }
+
+        /* All these commands need the config dir for INI access. */
+        oa2dp_config_init();
+
+        if (wcscmp(cmd, L"--show-codec-config") == 0)
+            return cli_show_codec_config(addr);
+
+        /* All write commands need admin (registry write). */
+        if (!oa2dp_process_is_elevated()) {
+            fprintf(stderr,
+                    "error: %ls needs Administrator. "
+                    "Relaunch from an elevated terminal.\n", cmd);
+            return 1;
+        }
+
+        if (wcscmp(cmd, L"--set-codec") == 0) {
+            if (argc < 4) {
+                fprintf(stderr, "error: --set-codec needs 'sbc' or 'aac'\n");
+                return 2;
+            }
+            if (wcscmp(argv[3], L"sbc") == 0)
+                return cli_apply_one(addr, mut_set_codec_sbc, 0, "--set-codec sbc");
+            if (wcscmp(argv[3], L"aac") == 0)
+                return cli_apply_one(addr, mut_set_codec_aac, 0, "--set-codec aac");
+            fprintf(stderr, "error: --set-codec value must be 'sbc' or 'aac'\n");
+            return 2;
+        }
+        if (wcscmp(cmd, L"--set-bitpool") == 0) {
+            if (argc < 4) {
+                fprintf(stderr, "error: --set-bitpool needs an integer\n");
+                return 2;
+            }
+            int v = _wtoi(argv[3]);
+            return cli_apply_one(addr, mut_set_bitpool, v, "--set-bitpool");
+        }
+        if (wcscmp(cmd, L"--set-aac-bitrate") == 0) {
+            if (argc < 4) {
+                fprintf(stderr, "error: --set-aac-bitrate needs an integer (kbps)\n");
+                return 2;
+            }
+            int v = _wtoi(argv[3]);
+            return cli_apply_one(addr, mut_set_aac_bitrate, v, "--set-aac-bitrate");
+        }
+    }
 
     if (wcscmp(cmd, L"--probe-registry") == 0) {
         OA2DP_DriverList drivers;

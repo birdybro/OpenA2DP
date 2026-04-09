@@ -69,6 +69,10 @@ static DWORD WINAPI heal_thread(LPVOID param)
 {
     HealParam *p = (HealParam *)param;
 
+    /* This thread calls audio_status_query which uses MMDevice / COM.
+     * COM is per-thread, so the worker needs its own apartment. */
+    oa2dp_audio_status_thread_init();
+
     oa2dp_log(OA2DP_LOG_INFO, "auto-heal: starting check for %s", p->device_id);
     oa2dp_stats_inc_heal_trigger();
 
@@ -139,6 +143,7 @@ static DWORD WINAPI heal_thread(LPVOID param)
     }
 
     free(p);
+    oa2dp_audio_status_thread_shutdown();
     InterlockedExchange(&g_heal_busy, 0);
     return 0;
 }

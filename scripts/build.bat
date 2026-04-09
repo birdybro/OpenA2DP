@@ -18,6 +18,15 @@ set EXE_CLI=%OUTDIR%\OpenA2DP-cli.exe
 
 if not exist "%OUTDIR%" mkdir "%OUTDIR%"
 
+:: ── Clean stale .obj / .exp / .lib files ───────────────────────────
+:: The link step uses %OUTDIR%\*.obj as a glob, so any leftover .obj
+:: from a renamed or deleted source file would silently get pulled in.
+:: Wipe them every build — the project's small enough that a full
+:: recompile is fast and avoids stale-symbol bugs entirely.
+del /q "%OUTDIR%\*.obj" 2>nul
+del /q "%OUTDIR%\*.exp" 2>nul
+del /q "%OUTDIR%\*.lib" 2>nul
+
 :: ── Include paths ──────────────────────────────────────────────────
 set INCLUDES=/I"%ROOT%\include" /I"%CIMGUI%" /I"%IMGUI%" /I"%BACKENDS%" /I"%SRC_APP%"
 

@@ -18,6 +18,7 @@
 
 #include "oa2dp_driver_control.h"
 #include "oa2dp_actions.h"
+#include "oa2dp_device_probe.h"
 #include "oa2dp_log.h"
 #include "oa2dp_stats.h"
 
@@ -519,6 +520,12 @@ static void do_stack_switch(OA2DP_StackTarget target,
             oa2dp_action_reconnect(prof->device_id);
         }
     }
+
+    /* Refresh installed-services flags / battery / Alt A2DP snapshot
+     * for every device against the new stack so the UI doesn't show
+     * stale data after the switch. */
+    if (devices)
+        oa2dp_device_probe_start(devices);
 
     oa2dp_log(OA2DP_LOG_INFO, "stack switch: complete (%s)", target_name);
 }

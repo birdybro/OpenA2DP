@@ -100,8 +100,6 @@ typedef struct OA2DP_DeviceProfile {
     char device_id[256];
     char display_name[128];
     OA2DP_CodecType preferred_codec;
-    int allow_mono;
-    int allow_stereo;
     int allow_16khz;
     int allow_32khz;
     int allow_44_1khz;
@@ -110,9 +108,7 @@ typedef struct OA2DP_DeviceProfile {
     OA2DP_BlockSize block_size;
     OA2DP_AllocMethod allocation_method;
     OA2DP_Subbands subbands;
-    int override_bitpool;
     int bitpool;
-    int auto_reduce_bitpool;
     int auto_heal_enabled;   /* if set, auto-reconnect when device connects but no audio endpoint appears */
     int hfp_watchdog_enabled; /* if set, periodically re-disable Handsfree to prevent it being turned back on */
 

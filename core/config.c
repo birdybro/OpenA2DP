@@ -171,10 +171,6 @@ int oa2dp_profile_save(const char *path, const OA2DP_DeviceProfile *p)
     fprintf(f, "\n[codec]\n");
     fprintf(f, "preferred_codec = %s\n",     codec_to_str(p->preferred_codec));
 
-    fprintf(f, "\n[channels]\n");
-    fprintf(f, "allow_mono = %d\n",          p->allow_mono);
-    fprintf(f, "allow_stereo = %d\n",        p->allow_stereo);
-
     fprintf(f, "\n[sample_rates]\n");
     fprintf(f, "allow_16khz = %d\n",         p->allow_16khz);
     fprintf(f, "allow_32khz = %d\n",         p->allow_32khz);
@@ -186,9 +182,7 @@ int oa2dp_profile_save(const char *path, const OA2DP_DeviceProfile *p)
     fprintf(f, "block_size = %d\n",          block_size_to_int(p->block_size));
     fprintf(f, "allocation_method = %s\n",   alloc_to_str(p->allocation_method));
     fprintf(f, "subbands = %d\n",            subbands_to_int(p->subbands));
-    fprintf(f, "override_bitpool = %d\n",    p->override_bitpool);
     fprintf(f, "bitpool = %d\n",             p->bitpool);
-    fprintf(f, "auto_reduce_bitpool = %d\n", p->auto_reduce_bitpool);
 
     fprintf(f, "\n[auto_heal]\n");
     fprintf(f, "auto_heal_enabled = %d\n",   p->auto_heal_enabled);
@@ -244,10 +238,6 @@ int oa2dp_profile_load(const char *path, OA2DP_DeviceProfile *p)
             snprintf(p->display_name, sizeof(p->display_name), "%s", val);
         else if (strcmp(key, "preferred_codec") == 0)
             p->preferred_codec = str_to_codec(val);
-        else if (strcmp(key, "allow_mono") == 0)
-            p->allow_mono = atoi(val);
-        else if (strcmp(key, "allow_stereo") == 0)
-            p->allow_stereo = atoi(val);
         else if (strcmp(key, "allow_16khz") == 0)
             p->allow_16khz = atoi(val);
         else if (strcmp(key, "allow_32khz") == 0)
@@ -264,12 +254,8 @@ int oa2dp_profile_load(const char *path, OA2DP_DeviceProfile *p)
             p->allocation_method = str_to_alloc(val);
         else if (strcmp(key, "subbands") == 0)
             p->subbands = int_to_subbands(atoi(val));
-        else if (strcmp(key, "override_bitpool") == 0)
-            p->override_bitpool = atoi(val);
         else if (strcmp(key, "bitpool") == 0)
             p->bitpool = atoi(val);
-        else if (strcmp(key, "auto_reduce_bitpool") == 0)
-            p->auto_reduce_bitpool = atoi(val);
         else if (strcmp(key, "auto_heal_enabled") == 0)
             p->auto_heal_enabled = atoi(val);
         else if (strcmp(key, "hfp_watchdog_enabled") == 0)

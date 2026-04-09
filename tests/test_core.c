@@ -31,8 +31,6 @@ TEST(test_defaults)
     oa2dp_profile_defaults(&p);
 
     assert(p.preferred_codec == OA2DP_CODEC_SBC);
-    assert(p.allow_stereo == 1);
-    assert(p.allow_mono == 1);
     assert(p.allow_44_1khz == 1);
     assert(p.allow_48khz == 1);
     assert(p.allow_16khz == 0);
@@ -42,8 +40,9 @@ TEST(test_defaults)
     assert(p.allocation_method == OA2DP_ALLOC_LOUDNESS);
     assert(p.subbands == OA2DP_SUBBANDS_8);
     assert(p.bitpool == 53);
-    assert(p.override_bitpool == 0);
-    assert(p.auto_reduce_bitpool == 1);
+    assert(p.sbc_override_device_max == 0);
+    assert(p.aac_bitrate_kbps == 256);
+    assert(p.abr_enable == 1);
 }
 
 /* ── validation / clamping ──────────────────────────────────────────── */
@@ -70,17 +69,6 @@ TEST(test_validate_clamps_enum)
     p.preferred_codec = (OA2DP_CodecType)99;
     oa2dp_profile_validate(&p);
     assert(p.preferred_codec >= 0 && p.preferred_codec < OA2DP_CODEC_COUNT);
-}
-
-TEST(test_validate_forces_channel)
-{
-    OA2DP_DeviceProfile p;
-    oa2dp_profile_defaults(&p);
-
-    p.allow_mono = 0;
-    p.allow_stereo = 0;
-    oa2dp_profile_validate(&p);
-    assert(p.allow_stereo == 1);
 }
 
 TEST(test_validate_forces_sample_rate)
@@ -110,7 +98,8 @@ TEST(test_save_load_roundtrip)
     orig.allocation_method = OA2DP_ALLOC_SNR;
     orig.subbands = OA2DP_SUBBANDS_4;
     orig.bitpool = 40;
-    orig.override_bitpool = 1;
+    orig.aac_bitrate_kbps = 192;
+    orig.abr_enable = 0;
 
     assert(oa2dp_profile_save(TEST_FILE, &orig) == 0);
 
@@ -121,16 +110,14 @@ TEST(test_save_load_roundtrip)
     assert(strcmp(loaded.device_id, orig.device_id) == 0);
     assert(strcmp(loaded.display_name, orig.display_name) == 0);
     assert(loaded.preferred_codec == orig.preferred_codec);
-    assert(loaded.allow_mono == orig.allow_mono);
-    assert(loaded.allow_stereo == orig.allow_stereo);
     assert(loaded.allow_44_1khz == orig.allow_44_1khz);
     assert(loaded.stereo_mode == orig.stereo_mode);
     assert(loaded.block_size == orig.block_size);
     assert(loaded.allocation_method == orig.allocation_method);
     assert(loaded.subbands == orig.subbands);
     assert(loaded.bitpool == orig.bitpool);
-    assert(loaded.override_bitpool == orig.override_bitpool);
-    assert(loaded.auto_reduce_bitpool == orig.auto_reduce_bitpool);
+    assert(loaded.aac_bitrate_kbps == orig.aac_bitrate_kbps);
+    assert(loaded.abr_enable == orig.abr_enable);
 
     remove(TEST_FILE);
 }

@@ -24,10 +24,24 @@
 #include <string.h>
 #include <wchar.h>
 
-/* ── COM pointers ───────────────────────────────────────────────────── */
+/* ── thread-local COM state ─────────────────────────────────────────
+ *
+ * Earlier versions cached a single IMMDeviceEnumerator created on the
+ * main thread and reused it from worker threads (auto_heal especially).
+ * That's technically undefined cross-apartment access — Windows let it
+ * slide most of the time, but it could fail unpredictably.
+ *
+ * The current model:
+ *   - oa2dp_audio_status_init  initialises COM on the *main* thread.
+ *   - oa2dp_audio_status_query creates and releases its own enumerator
+ *     for every call, so there's no cross-thread object handoff.
+ *   - Worker threads that call audio_status_query MUST initialise COM
+ *     for their own thread first (apartment-threaded), via the
+ *     companion oa2dp_audio_status_thread_init / _thread_shutdown
+ *     helpers below.
+ */
 
-static IMMDeviceEnumerator *g_enumerator = nullptr;
-static bool g_com_init = false;
+static bool g_com_init_main = false;
 
 /* ── helpers ────────────────────────────────────────────────────────── */
 
@@ -92,33 +106,35 @@ extern "C" int oa2dp_audio_status_init(void)
                   (unsigned)hr);
         return -1;
     }
-    g_com_init = true;
-
-    hr = CoCreateInstance(
-        __uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
-        __uuidof(IMMDeviceEnumerator), (void **)&g_enumerator);
-    if (FAILED(hr) || !g_enumerator) {
-        oa2dp_log(OA2DP_LOG_ERROR,
-                  "audio status: failed to create MMDeviceEnumerator (0x%08X)",
-                  (unsigned)hr);
-        return -1;
-    }
-
+    g_com_init_main = true;
     oa2dp_log(OA2DP_LOG_INFO, "audio status: initialized");
     return 0;
 }
 
 extern "C" void oa2dp_audio_status_shutdown(void)
 {
-    if (g_enumerator) {
-        g_enumerator->Release();
-        g_enumerator = nullptr;
-    }
-    if (g_com_init) {
+    if (g_com_init_main) {
         CoUninitialize();
-        g_com_init = false;
+        g_com_init_main = false;
     }
     oa2dp_log(OA2DP_LOG_INFO, "audio status: shut down");
+}
+
+/* Per-thread COM init for worker threads that want to call
+ * audio_status_query.  Returns 0 on success, -1 on failure (in which
+ * case audio_status_query will also fail with -1 — the failure mode
+ * is graceful). */
+extern "C" int oa2dp_audio_status_thread_init(void)
+{
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (FAILED(hr) && hr != S_FALSE && hr != RPC_E_CHANGED_MODE)
+        return -1;
+    return 0;
+}
+
+extern "C" void oa2dp_audio_status_thread_shutdown(void)
+{
+    CoUninitialize();
 }
 
 /* Read PKEY_Device_FriendlyName from a device into a wide buffer.
@@ -175,7 +191,7 @@ extern "C" int oa2dp_audio_status_query(const char *device_id,
                                         const char *display_name,
                                         OA2DP_DeviceStatus *status)
 {
-    if (!g_enumerator || !device_id || !status)
+    if (!device_id || !status)
         return -1;
 
     /* Build address-search string (e.g. "aabbccddeeff"). */
@@ -192,12 +208,25 @@ extern "C" int oa2dp_audio_status_query(const char *device_id,
             have_name = true;
     }
 
+    /* Create a fresh enumerator for this call, owned by the calling
+     * thread's apartment.  Avoids the cross-apartment-access bug we
+     * had when caching one on the main thread and using it from
+     * worker threads.  Cost: a few hundred microseconds per call. */
+    IMMDeviceEnumerator *enumerator = nullptr;
+    HRESULT hr = CoCreateInstance(
+        __uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+        __uuidof(IMMDeviceEnumerator), (void **)&enumerator);
+    if (FAILED(hr) || !enumerator)
+        return -1;
+
     /* Enumerate active audio render endpoints. */
     IMMDeviceCollection *collection = nullptr;
-    HRESULT hr = g_enumerator->EnumAudioEndpoints(
+    hr = enumerator->EnumAudioEndpoints(
         eRender, DEVICE_STATE_ACTIVE, &collection);
-    if (FAILED(hr) || !collection)
+    if (FAILED(hr) || !collection) {
+        enumerator->Release();
         return -1;
+    }
 
     UINT count = 0;
     collection->GetCount(&count);
@@ -296,5 +325,6 @@ extern "C" int oa2dp_audio_status_query(const char *device_id,
     }
 
     collection->Release();
+    enumerator->Release();
     return found ? 0 : -1;
 }

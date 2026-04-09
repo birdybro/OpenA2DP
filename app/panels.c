@@ -207,6 +207,31 @@ static void draw_device_list(OA2DP_UIState *ui)
     igEndChild();
 }
 
+/* Copy the codec-relevant snap_* fields from the registry-snapshot
+ * back into the profile, reverting any unsaved edits.  Used by the
+ * Discard button. */
+static void revert_codec_to_snapshot(OA2DP_DeviceProfile *p,
+                                     const OA2DP_DeviceStatus *s)
+{
+    if (!s->alt_snapshot_valid) return;
+    p->preferred_codec    = (OA2DP_CodecType)s->snap_preferred_codec;
+    p->allow_16khz        = s->snap_allow_16khz;
+    p->allow_32khz        = s->snap_allow_32khz;
+    p->allow_44_1khz      = s->snap_allow_44_1khz;
+    p->allow_48khz        = s->snap_allow_48khz;
+    p->stereo_mode        = (OA2DP_StereoMode)s->snap_stereo_mode;
+    p->block_size         = (OA2DP_BlockSize)s->snap_block_size;
+    p->allocation_method  = (OA2DP_AllocMethod)s->snap_allocation_method;
+    p->subbands           = (OA2DP_Subbands)s->snap_subbands;
+    p->bitpool            = s->snap_bitpool;
+    p->aac_bitrate_kbps   = s->snap_aac_bitrate_kbps;
+    p->aac_allow_stereo   = s->snap_aac_allow_stereo;
+    p->aac_allow_mono     = s->snap_aac_allow_mono;
+    p->aac_allow_44_1khz  = s->snap_aac_allow_44_1khz;
+    p->aac_allow_48khz    = s->snap_aac_allow_48khz;
+    p->abr_enable         = s->snap_abr_enable;
+}
+
 /* ── Settings panel (main panel) ────────────────────────────────────── */
 
 static void draw_settings(OA2DP_UIState *ui)
@@ -432,6 +457,15 @@ static void draw_settings(OA2DP_UIState *ui)
             }
 
             if (!can_apply) igEndDisabled();
+
+            /* Discard doesn't write anywhere — it just reverts the
+             * profile to the last-known snapshot.  No admin needed. */
+            igSameLine(0, 6);
+            if (igButton("Discard", btn)) {
+                /* Re-read in case anything changed externally. */
+                oa2dp_altdriver_read_next(p->device_id, s);
+                revert_codec_to_snapshot(p, s);
+            }
         }
     }
 

@@ -27,8 +27,6 @@ void oa2dp_profile_defaults(OA2DP_DeviceProfile *p)
     memset(p, 0, sizeof(*p));
 
     p->preferred_codec      = OA2DP_CODEC_SBC;
-    p->allow_mono           = 1;
-    p->allow_stereo         = 1;
     p->allow_16khz          = 0;
     p->allow_32khz          = 0;
     p->allow_44_1khz        = 1;
@@ -37,7 +35,6 @@ void oa2dp_profile_defaults(OA2DP_DeviceProfile *p)
     p->block_size           = OA2DP_BLOCK_16;
     p->allocation_method    = OA2DP_ALLOC_LOUDNESS;
     p->subbands             = OA2DP_SUBBANDS_8;
-    p->override_bitpool     = 0;
     /* Bitpool default is intentionally high — the actual value used
      * gets clamped to the device's Capability.SbcMaximumBitpool at
      * write time unless the user explicitly enables the override.
@@ -45,7 +42,6 @@ void oa2dp_profile_defaults(OA2DP_DeviceProfile *p)
      * is the safe and usually-best choice. */
     p->bitpool                  = 53;
     p->sbc_override_device_max  = 0;
-    p->auto_reduce_bitpool      = 1;
     p->auto_heal_enabled    = 0;    /* opt-in: user enables per device once verified */
     p->hfp_watchdog_enabled = 0;    /* opt-in: keeps Handsfree disabled for headphones-only devices */
 
@@ -72,14 +68,10 @@ void oa2dp_profile_validate(OA2DP_DeviceProfile *p)
     p->subbands          = (OA2DP_Subbands)clamp_int((int)p->subbands, 0, OA2DP_SUBBANDS_COUNT - 1);
 
     /* Booleans. */
-    p->allow_mono          = clamp_bool(p->allow_mono);
-    p->allow_stereo        = clamp_bool(p->allow_stereo);
-    p->allow_16khz         = clamp_bool(p->allow_16khz);
-    p->allow_32khz         = clamp_bool(p->allow_32khz);
-    p->allow_44_1khz       = clamp_bool(p->allow_44_1khz);
-    p->allow_48khz         = clamp_bool(p->allow_48khz);
-    p->override_bitpool    = clamp_bool(p->override_bitpool);
-    p->auto_reduce_bitpool = clamp_bool(p->auto_reduce_bitpool);
+    p->allow_16khz          = clamp_bool(p->allow_16khz);
+    p->allow_32khz          = clamp_bool(p->allow_32khz);
+    p->allow_44_1khz        = clamp_bool(p->allow_44_1khz);
+    p->allow_48khz          = clamp_bool(p->allow_48khz);
     p->auto_heal_enabled    = clamp_bool(p->auto_heal_enabled);
     p->hfp_watchdog_enabled = clamp_bool(p->hfp_watchdog_enabled);
 
@@ -100,11 +92,7 @@ void oa2dp_profile_validate(OA2DP_DeviceProfile *p)
         if (p->aac_bitrate_kbps > 320) p->aac_bitrate_kbps = 320;
     }
 
-    /* At least one channel mode must be allowed. */
-    if (!p->allow_mono && !p->allow_stereo)
-        p->allow_stereo = 1;
-
-    /* At least one sample rate must be allowed. */
+    /* At least one SBC sample rate must be allowed. */
     if (!p->allow_16khz && !p->allow_32khz && !p->allow_44_1khz && !p->allow_48khz)
         p->allow_44_1khz = 1;
 
