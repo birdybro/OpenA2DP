@@ -223,7 +223,8 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
 
     /* Restore previous window placement if available. */
     int win_x = 100, win_y = 100, win_w = 1440, win_h = 900;
-    oa2dp_window_state_load(&win_x, &win_y, &win_w, &win_h);
+    int loaded_advanced = 0;
+    oa2dp_window_state_load(&win_x, &win_y, &win_w, &win_h, &loaded_advanced);
 
     /* Create window. */
     HWND hwnd = CreateWindowW(
@@ -256,6 +257,7 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
 
     /* ── Device enumeration ─────────────────────────────────────── */
     oa2dp_ui_state_init(&g_ui);
+    g_ui.advanced_mode = loaded_advanced;
 
     /* ── A2DP driver detection ──────────────────────────────────
      * Populates g_ui.drivers so the UI panel can render and control
@@ -370,7 +372,8 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
             RECT *r = &wp.rcNormalPosition;
             oa2dp_window_state_save(r->left, r->top,
                                     r->right - r->left,
-                                    r->bottom - r->top);
+                                    r->bottom - r->top,
+                                    g_ui.advanced_mode);
         }
     }
 

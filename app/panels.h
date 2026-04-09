@@ -22,6 +22,12 @@ typedef struct OA2DP_UIState {
     /* Log panel state. */
     int                 log_show_level[4];  /* filter per OA2DP_LogLevel */
     int                 log_auto_scroll;
+
+    /* Advanced Mode toggle.  When 0 (the default), the UI hides
+     * stacks/codec/services/watchdogs/capabilities/history/log and
+     * exposes only Reconnect / Reset plus a minimal status readout —
+     * the 99% workflow.  Persisted alongside window state. */
+    int                 advanced_mode;
 } OA2DP_UIState;
 
 /* Initialize UI state with sensible defaults. */

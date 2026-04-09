@@ -229,20 +229,22 @@ static void draw_device_list(OA2DP_UIState *ui)
         }
     }
 
-    igSeparator();
-    igDummy((ImVec2_c){0, 4});
-    draw_drivers_section(ui);
+    if (ui->advanced_mode) {
+        igSeparator();
+        igDummy((ImVec2_c){0, 4});
+        draw_drivers_section(ui);
 
-    /* ── Activity counters ──────────────────────────────────────── */
-    igSeparator();
-    {
-        const OA2DP_Stats *st = oa2dp_stats_get();
-        igText("Activity");
-        igTextDisabled("Reconnects:    %ld", st->reconnects);
-        igTextDisabled("Heal trig/rec/fail: %ld / %ld / %ld",
-                       st->heal_triggers, st->heal_recoveries, st->heal_failures);
-        igTextDisabled("HFP watchdog:  %ld", st->hfp_watchdog);
-        igTextDisabled("Stack switches: %ld", st->stack_switches);
+        /* ── Activity counters ──────────────────────────────────── */
+        igSeparator();
+        {
+            const OA2DP_Stats *st = oa2dp_stats_get();
+            igText("Activity");
+            igTextDisabled("Reconnects:    %ld", st->reconnects);
+            igTextDisabled("Heal trig/rec/fail: %ld / %ld / %ld",
+                           st->heal_triggers, st->heal_recoveries, st->heal_failures);
+            igTextDisabled("HFP watchdog:  %ld", st->hfp_watchdog);
+            igTextDisabled("Stack switches: %ld", st->stack_switches);
+        }
     }
 
     igEndChild();
@@ -317,6 +319,32 @@ static void draw_settings(OA2DP_UIState *ui)
 
     igText("Profile: %s", p->display_name);
     igSeparator();
+
+    /* ── Simple mode: just Reconnect / Reset, nothing else. ──────── */
+    if (!ui->advanced_mode) {
+        int busy = oa2dp_action_busy();
+        if (busy) igBeginDisabled(true);
+
+        ImVec2_c btn = { 140, 0 };
+        if (igButton("Reconnect", btn))
+            oa2dp_action_reconnect_async(p->device_id);
+        igSameLine(0, 8);
+        if (igButton("Reset", btn))
+            oa2dp_action_reset_async(p->device_id);
+
+        if (busy) {
+            igEndDisabled();
+            igSameLine(0, 8);
+            igText("Working...");
+        }
+
+        igDummy((ImVec2_c){0, 6});
+        igTextWrapped(
+            "Reconnect re-establishes the A2DP audio link. Reset cycles "
+            "all audio services on this device — try this if Reconnect "
+            "alone doesn't fix the audio.");
+        return;
+    }
 
     /* ── Codec settings (Alternative A2DP Driver only) ──────────────
      *
@@ -756,6 +784,26 @@ static void draw_status(OA2DP_UIState *ui)
         igTextColored(col, "%s", conn_labels[s->connection]);
     }
 
+    /* ── Simple mode: connection, battery, silent-bug warning. ──── */
+    if (!ui->advanced_mode) {
+        if (s->battery_pct >= 0) {
+            igText("Battery:");
+            igSameLine(0, 4);
+            ImVec4_c col;
+            if      (s->battery_pct >= 50) { col.x=0.2f; col.y=0.9f; col.z=0.2f; col.w=1.0f; }
+            else if (s->battery_pct >= 20) { col.x=1.0f; col.y=0.8f; col.z=0.0f; col.w=1.0f; }
+            else                            { col.x=1.0f; col.y=0.3f; col.z=0.3f; col.w=1.0f; }
+            igTextColored(col, "%d%%", s->battery_pct);
+        }
+        if (s->connection == OA2DP_CONN_CONNECTED && s->endpoint_miss_count >= 2) {
+            igSeparator();
+            ImVec4_c warn = { 1.0f, 0.8f, 0.0f, 1.0f };
+            igTextColored(warn, "Connected but no audio.");
+            igTextWrapped("Click Reconnect to fix it.");
+        }
+        return;
+    }
+
     /* Bluetooth address — useful for CLI mode and copy/paste. */
     {
         igText("Address:");
@@ -1171,27 +1219,39 @@ void oa2dp_panels_draw(OA2DP_UIState *ui)
             ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
             ImGuiWindowFlags_NoBringToFrontOnFocus);
 
-    /* ── Top header: active stack indicator ──────────────────────
-     * Single line at the very top so the user always knows which
-     * A2DP stack is currently routing audio without having to
-     * scroll the status panel. */
+    /* ── Top header: active stack indicator + Advanced Mode toggle.
+     * Stack indicator is advanced-only (it's noise for the 99%
+     * audience).  The Advanced Mode checkbox is always visible so
+     * the user can toggle in either direction. */
     {
-        char stack_label[64];
-        oa2dp_driver_active_stack_label(&ui->drivers,
-                                        stack_label, sizeof(stack_label));
-        igText("Active A2DP stack:");
-        igSameLine(0, 6);
-        ImVec4_c col;
-        if (strstr(stack_label, "Microsoft")) {
-            col.x = 0.4f; col.y = 0.7f; col.z = 1.0f; col.w = 1.0f;  /* blue */
-        } else if (strstr(stack_label, "Alternative")) {
-            col.x = 0.3f; col.y = 0.9f; col.z = 0.5f; col.w = 1.0f;  /* green */
-        } else if (strstr(stack_label, "Multiple")) {
-            col.x = 1.0f; col.y = 0.8f; col.z = 0.0f; col.w = 1.0f;  /* yellow */
-        } else {
-            col.x = 1.0f; col.y = 0.4f; col.z = 0.4f; col.w = 1.0f;  /* red */
+        if (ui->advanced_mode) {
+            char stack_label[64];
+            oa2dp_driver_active_stack_label(&ui->drivers,
+                                            stack_label, sizeof(stack_label));
+            igText("Active A2DP stack:");
+            igSameLine(0, 6);
+            ImVec4_c col;
+            if (strstr(stack_label, "Microsoft")) {
+                col.x = 0.4f; col.y = 0.7f; col.z = 1.0f; col.w = 1.0f;  /* blue */
+            } else if (strstr(stack_label, "Alternative")) {
+                col.x = 0.3f; col.y = 0.9f; col.z = 0.5f; col.w = 1.0f;  /* green */
+            } else if (strstr(stack_label, "Multiple")) {
+                col.x = 1.0f; col.y = 0.8f; col.z = 0.0f; col.w = 1.0f;  /* yellow */
+            } else {
+                col.x = 1.0f; col.y = 0.4f; col.z = 0.4f; col.w = 1.0f;  /* red */
+            }
+            igTextColored(col, "%s", stack_label);
+            igSameLine(0, 24);
         }
-        igTextColored(col, "%s", stack_label);
+
+        bool adv = (bool)ui->advanced_mode;
+        if (igCheckbox("Advanced Mode", &adv))
+            ui->advanced_mode = adv ? 1 : 0;
+        hover_help(
+            "Show codec settings, A2DP stack control, service toggles, "
+            "watchdogs, device capabilities, connection history, and the "
+            "diagnostic log. Off by default — most users only need "
+            "Reconnect / Reset.");
         igSeparator();
     }
 
@@ -1206,10 +1266,13 @@ void oa2dp_panels_draw(OA2DP_UIState *ui)
         igBeginChild_Str("##right", right_size, ImGuiChildFlags_None,
                          ImGuiWindowFlags_None);
 
-        /* Top: settings and status side by side */
+        /* Top: settings and status side by side.  In simple mode the
+         * log is hidden, so settings/status fill the entire right
+         * side.  In advanced mode they take ~65% and the log gets
+         * the rest. */
         {
             ImVec2_c avail = igGetContentRegionAvail();
-            float top_h = avail.y * 0.65f;
+            float top_h = ui->advanced_mode ? avail.y * 0.65f : avail.y;
 
             ImVec2_c top_size = { 0, top_h };
             igBeginChild_Str("##top", top_size, ImGuiChildFlags_None,
@@ -1243,8 +1306,8 @@ void oa2dp_panels_draw(OA2DP_UIState *ui)
             igEndChild();
         }
 
-        /* Bottom: log */
-        {
+        /* Bottom: log (advanced only). */
+        if (ui->advanced_mode) {
             ImVec2_c log_size = { 0, 0 };  /* fill remaining */
             igBeginChild_Str("##log", log_size,
                              ImGuiChildFlags_Borders,

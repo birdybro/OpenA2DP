@@ -296,7 +296,7 @@ static void window_state_path(char *out, int out_size)
         out[0] = '\0';
 }
 
-int oa2dp_window_state_save(int x, int y, int w, int h)
+int oa2dp_window_state_save(int x, int y, int w, int h, int advanced_mode)
 {
     char path[MAX_PATH];
     window_state_path(path, sizeof(path));
@@ -313,12 +313,13 @@ int oa2dp_window_state_save(int x, int y, int w, int h)
     fprintf(f, "y = %d\n", y);
     fprintf(f, "w = %d\n", w);
     fprintf(f, "h = %d\n", h);
+    fprintf(f, "advanced_mode = %d\n", advanced_mode ? 1 : 0);
 
     fclose(f);
     return 0;
 }
 
-int oa2dp_window_state_load(int *x, int *y, int *w, int *h)
+int oa2dp_window_state_load(int *x, int *y, int *w, int *h, int *advanced_mode)
 {
     if (!x || !y || !w || !h) return -1;
 
@@ -343,6 +344,9 @@ int oa2dp_window_state_load(int *x, int *y, int *w, int *h)
         else if (strcmp(key, "y") == 0) { *y = atoi(val); got_y = 1; }
         else if (strcmp(key, "w") == 0) { *w = atoi(val); got_w = 1; }
         else if (strcmp(key, "h") == 0) { *h = atoi(val); got_h = 1; }
+        else if (strcmp(key, "advanced_mode") == 0 && advanced_mode) {
+            *advanced_mode = atoi(val) ? 1 : 0;
+        }
     }
     fclose(f);
 
