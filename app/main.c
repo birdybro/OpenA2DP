@@ -176,11 +176,20 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     wc.lpszClassName  = L"OpenA2DP";
     RegisterClassExW(&wc);
 
+    /* Config dir is needed for window state load — initialize it
+     * before CreateWindow even though it's logically a "later" step. */
+    if (oa2dp_config_init() != 0)
+        oa2dp_log(OA2DP_LOG_WARN, "config init failed, profiles will not persist");
+
+    /* Restore previous window placement if available. */
+    int win_x = 100, win_y = 100, win_w = 1440, win_h = 900;
+    oa2dp_window_state_load(&win_x, &win_y, &win_w, &win_h);
+
     /* Create window. */
     HWND hwnd = CreateWindowW(
         wc.lpszClassName, L"OpenA2DP",
         WS_OVERLAPPEDWINDOW,
-        100, 100, 1440, 900,
+        win_x, win_y, win_w, win_h,
         NULL, NULL, hInstance, NULL);
 
     if (!hwnd) {
@@ -200,10 +209,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     UpdateWindow(hwnd);
 
     oa2dp_log(OA2DP_LOG_INFO, "renderer initialized");
-
-    /* ── Config directory ───────────────────────────────────────── */
-    if (oa2dp_config_init() != 0)
-        oa2dp_log(OA2DP_LOG_WARN, "config init failed, profiles will not persist");
 
     /* ── Audio status subsystem ─────────────────────────────────── */
     if (oa2dp_audio_status_init() != 0)
@@ -298,6 +303,21 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
     oa2dp_log(OA2DP_LOG_INFO, "shutting down");
     save_dirty_profiles();
+
+    /* Persist window placement.  GetWindowPlacement gives the
+     * "normal" rect even when the window is currently minimized
+     * or hidden to tray, which is exactly what we want to restore. */
+    {
+        WINDOWPLACEMENT wp = {0};
+        wp.length = sizeof(wp);
+        if (GetWindowPlacement(hwnd, &wp)) {
+            RECT *r = &wp.rcNormalPosition;
+            oa2dp_window_state_save(r->left, r->top,
+                                    r->right - r->left,
+                                    r->bottom - r->top);
+        }
+    }
+
     oa2dp_tray_shutdown();
     oa2dp_device_unregister_notify();
     oa2dp_audio_status_shutdown();

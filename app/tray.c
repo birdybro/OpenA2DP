@@ -59,6 +59,32 @@ void oa2dp_tray_shutdown(void)
     }
 }
 
+/* ── notifications ──────────────────────────────────────────────────── */
+
+void oa2dp_tray_notify(const char *title, const char *message)
+{
+    if (!g_added) return;
+    if (!title)   title   = "OpenA2DP";
+    if (!message) message = "";
+
+    /* Modify-with-info on the existing icon.  We restore the basic
+     * NIF_ICON|NIF_TIP flags afterwards so subsequent calls don't
+     * re-trigger the balloon. */
+    NOTIFYICONDATAW info = {0};
+    info.cbSize = sizeof(info);
+    info.hWnd   = g_nid.hWnd;
+    info.uID    = g_nid.uID;
+    info.uFlags = NIF_INFO;
+    info.dwInfoFlags = NIIF_INFO;
+
+    MultiByteToWideChar(CP_UTF8, 0, title,   -1,
+                        info.szInfoTitle, ARRAYSIZE(info.szInfoTitle));
+    MultiByteToWideChar(CP_UTF8, 0, message, -1,
+                        info.szInfo,      ARRAYSIZE(info.szInfo));
+
+    Shell_NotifyIconW(NIM_MODIFY, &info);
+}
+
 /* ── window show / hide ─────────────────────────────────────────────── */
 
 void oa2dp_tray_toggle_window(void *hwnd_void)

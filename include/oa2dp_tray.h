@@ -62,6 +62,17 @@ void oa2dp_tray_handle_command(void *hwnd, OA2DP_UIState *ui, int cmd_id);
 /* Toggle main window visibility (show/restore vs hide). */
 void oa2dp_tray_toggle_window(void *hwnd);
 
+/*
+ * Show a Windows balloon-tip / toast through the tray icon.  Used by
+ * auto-heal to surface successful recoveries and give-up events
+ * without requiring the user to be looking at the log panel.
+ *
+ * Both arguments are UTF-8.  No-op if the tray icon was never
+ * successfully added (so it's safe to call from CLI mode or before
+ * tray init).
+ */
+void oa2dp_tray_notify(const char *title, const char *message);
+
 #ifdef __cplusplus
 }
 #endif

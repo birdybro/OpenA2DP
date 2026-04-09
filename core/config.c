@@ -276,3 +276,77 @@ int oa2dp_profile_load(const char *path, OA2DP_DeviceProfile *p)
               p->display_name, path);
     return 0;
 }
+
+/* ── window state ───────────────────────────────────────────────────── */
+
+static void window_state_path(char *out, int out_size)
+{
+    if (g_config_dir[0])
+        snprintf(out, out_size, "%s\\window.ini", g_config_dir);
+    else
+        out[0] = '\0';
+}
+
+int oa2dp_window_state_save(int x, int y, int w, int h)
+{
+    char path[MAX_PATH];
+    window_state_path(path, sizeof(path));
+    if (!path[0]) return -1;
+
+    FILE *f = fopen(path, "w");
+    if (!f) {
+        oa2dp_log(OA2DP_LOG_WARN, "config: could not save window state to '%s'", path);
+        return -1;
+    }
+
+    fprintf(f, "[window]\n");
+    fprintf(f, "x = %d\n", x);
+    fprintf(f, "y = %d\n", y);
+    fprintf(f, "w = %d\n", w);
+    fprintf(f, "h = %d\n", h);
+
+    fclose(f);
+    return 0;
+}
+
+int oa2dp_window_state_load(int *x, int *y, int *w, int *h)
+{
+    if (!x || !y || !w || !h) return -1;
+
+    char path[MAX_PATH];
+    window_state_path(path, sizeof(path));
+    if (!path[0]) return -1;
+
+    FILE *f = fopen(path, "r");
+    if (!f) return -1;
+
+    int got_x = 0, got_y = 0, got_w = 0, got_h = 0;
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        char *s = trim(line);
+        if (*s == '\0' || *s == '#' || *s == ';' || *s == '[') continue;
+        char *eq = strchr(s, '=');
+        if (!eq) continue;
+        *eq = '\0';
+        char *key = trim(s);
+        char *val = trim(eq + 1);
+        if      (strcmp(key, "x") == 0) { *x = atoi(val); got_x = 1; }
+        else if (strcmp(key, "y") == 0) { *y = atoi(val); got_y = 1; }
+        else if (strcmp(key, "w") == 0) { *w = atoi(val); got_w = 1; }
+        else if (strcmp(key, "h") == 0) { *h = atoi(val); got_h = 1; }
+    }
+    fclose(f);
+
+    if (!got_x || !got_y || !got_w || !got_h) return -1;
+
+    /* Sanity-clamp: minimum window size and on-screen-ish position. */
+    if (*w < 800)  *w = 800;
+    if (*h < 600)  *h = 600;
+    if (*x < -100) *x = 100;
+    if (*y < -100) *y = 100;
+
+    oa2dp_log(OA2DP_LOG_INFO,
+              "config: restored window state %dx%d at (%d,%d)",
+              *w, *h, *x, *y);
+    return 0;
+}

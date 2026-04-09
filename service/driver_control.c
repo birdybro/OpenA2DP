@@ -460,48 +460,54 @@ static int is_microsoft_service(const char *name)
     return icontains_ascii(name, "btha2dp");
 }
 
-static DWORD WINAPI switch_thread(LPVOID param)
+/*
+ * Core stack-switch routine.  Caller is responsible for the busy
+ * flag — async wrapper sets it before calling, CLI sync wrapper sets
+ * it before calling.  Both clear it after.
+ */
+static void do_stack_switch(OA2DP_StackTarget target,
+                            OA2DP_DriverList *drivers,
+                            OA2DP_DeviceList *devices)
 {
-    SwitchParam *p = (SwitchParam *)param;
     const char *target_name =
-        (p->target == OA2DP_STACK_MICROSOFT)
+        (target == OA2DP_STACK_MICROSOFT)
             ? "Microsoft (BthA2dp)" : "Alternative A2DP Driver";
 
     oa2dp_log(OA2DP_LOG_INFO, "stack switch: starting → %s", target_name);
 
-    /* ── Step 1: stop services that don't belong to the target ─── */
-    for (int i = 0; i < p->drivers->count; i++) {
-        OA2DP_A2dpService *svc = &p->drivers->services[i];
+    /* Step 1: stop services that don't belong to the target. */
+    for (int i = 0; i < drivers->count; i++) {
+        OA2DP_A2dpService *svc = &drivers->services[i];
         int wants_running =
-            (p->target == OA2DP_STACK_MICROSOFT)
+            (target == OA2DP_STACK_MICROSOFT)
                 ? is_microsoft_service(svc->name)
                 : !is_microsoft_service(svc->name);
 
         if (!wants_running && svc->state == OA2DP_SVC_RUNNING) {
             oa2dp_driver_stop(svc->name);
-            oa2dp_driver_refresh(p->drivers, i);
+            oa2dp_driver_refresh(drivers, i);
         }
     }
 
-    /* ── Step 2: start services that do belong to the target ──── */
-    for (int i = 0; i < p->drivers->count; i++) {
-        OA2DP_A2dpService *svc = &p->drivers->services[i];
+    /* Step 2: start services that do belong to the target. */
+    for (int i = 0; i < drivers->count; i++) {
+        OA2DP_A2dpService *svc = &drivers->services[i];
         int wants_running =
-            (p->target == OA2DP_STACK_MICROSOFT)
+            (target == OA2DP_STACK_MICROSOFT)
                 ? is_microsoft_service(svc->name)
                 : !is_microsoft_service(svc->name);
 
         if (wants_running && svc->state != OA2DP_SVC_RUNNING) {
             oa2dp_driver_start(svc->name);
-            oa2dp_driver_refresh(p->drivers, i);
+            oa2dp_driver_refresh(drivers, i);
         }
     }
 
-    /* ── Step 3: reconnect every connected device ─────────────── */
-    if (p->devices) {
-        for (int i = 0; i < p->devices->count; i++) {
-            const OA2DP_DeviceProfile *prof = &p->devices->profiles[i];
-            const OA2DP_DeviceStatus  *stat = &p->devices->statuses[i];
+    /* Step 3: reconnect every connected device so it re-binds. */
+    if (devices) {
+        for (int i = 0; i < devices->count; i++) {
+            const OA2DP_DeviceProfile *prof = &devices->profiles[i];
+            const OA2DP_DeviceStatus  *stat = &devices->statuses[i];
             if (stat->connection != OA2DP_CONN_CONNECTED)
                 continue;
 
@@ -513,7 +519,12 @@ static DWORD WINAPI switch_thread(LPVOID param)
     }
 
     oa2dp_log(OA2DP_LOG_INFO, "stack switch: complete (%s)", target_name);
+}
 
+static DWORD WINAPI switch_thread(LPVOID param)
+{
+    SwitchParam *p = (SwitchParam *)param;
+    do_stack_switch(p->target, p->drivers, p->devices);
     free(p);
     InterlockedExchange(&g_switch_busy, 0);
     return 0;
@@ -549,5 +560,22 @@ int oa2dp_stack_switch_async(OA2DP_StackTarget target,
         return -1;
     }
     CloseHandle(h);
+    return 0;
+}
+
+int oa2dp_stack_switch_sync(OA2DP_StackTarget target,
+                            OA2DP_DriverList *drivers,
+                            OA2DP_DeviceList *devices)
+{
+    if (!drivers) return -1;
+
+    if (InterlockedCompareExchange(&g_switch_busy, 1, 0) != 0) {
+        oa2dp_log(OA2DP_LOG_WARN,
+                  "stack switch: already in progress, ignoring request");
+        return -1;
+    }
+
+    do_stack_switch(target, drivers, devices);
+    InterlockedExchange(&g_switch_busy, 0);
     return 0;
 }

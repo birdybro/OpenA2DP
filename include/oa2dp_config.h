@@ -50,6 +50,18 @@ int oa2dp_profile_save(const char *path, const OA2DP_DeviceProfile *p);
  */
 int oa2dp_profile_load(const char *path, OA2DP_DeviceProfile *p);
 
+/*
+ * Window position / size persistence.  Stored as a tiny INI file in
+ * the config directory so the next launch can restore the window
+ * exactly where the user left it.
+ *
+ * Save returns 0 on success.  Load returns 0 if the file existed and
+ * was parsed, -1 otherwise — in which case the caller should fall
+ * back to its built-in defaults.
+ */
+int oa2dp_window_state_save(int x, int y, int w, int h);
+int oa2dp_window_state_load(int *x, int *y, int *w, int *h);
+
 #ifdef __cplusplus
 }
 #endif

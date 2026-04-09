@@ -112,6 +112,15 @@ int oa2dp_stack_switch_async(OA2DP_StackTarget target,
                              OA2DP_DriverList *drivers,
                              OA2DP_DeviceList *devices);
 
+/*
+ * Same operation, but synchronous on the calling thread.  Used by the
+ * CLI mode (where we have no UI thread to keep responsive).  Returns
+ * 0 on success, -1 if the busy slot is already taken or on error.
+ */
+int oa2dp_stack_switch_sync(OA2DP_StackTarget target,
+                            OA2DP_DriverList *drivers,
+                            OA2DP_DeviceList *devices);
+
 /* Returns 1 if a stack switch worker is currently running. */
 int oa2dp_stack_switch_busy(void);
 

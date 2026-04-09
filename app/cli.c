@@ -22,6 +22,8 @@
 
 #include "oa2dp_cli.h"
 #include "oa2dp_actions.h"
+#include "oa2dp_device.h"
+#include "oa2dp_driver_control.h"
 #include "oa2dp_log.h"
 
 #include <stdio.h>
@@ -34,6 +36,11 @@ static const wchar_t *KNOWN_CMDS[] = {
     L"--reconnect",
     L"--disable-hfp",
     L"--enable-a2dp",
+    L"--list-devices",
+    L"--list-stacks",
+    L"--switch-stack",
+    L"--start-service",
+    L"--stop-service",
     L"--help",
     L"-h",
     L"/?",
@@ -104,17 +111,119 @@ static void print_usage(void)
         "OpenA2DP - command-line Bluetooth audio control\n"
         "\n"
         "Usage:\n"
-        "  OpenA2DP.exe [command] <bluetooth-address>\n"
+        "  OpenA2DP.exe [command] [args]\n"
         "\n"
-        "Commands:\n"
-        "  --reconnect <addr>     Cycle the A2DP AudioSink service\n"
-        "  --disable-hfp <addr>   Disable Handsfree (HFP) on the device\n"
-        "  --enable-a2dp <addr>   Enable A2DP AudioSink on the device\n"
-        "  --help                 Show this message\n"
+        "Per-device actions (need <addr> in form XX:XX:XX:XX:XX:XX):\n"
+        "  --reconnect <addr>          Cycle the A2DP AudioSink service\n"
+        "  --disable-hfp <addr>        Disable Handsfree (HFP) on the device\n"
+        "  --enable-a2dp <addr>        Enable A2DP AudioSink on the device\n"
         "\n"
-        "<addr> is a Bluetooth address in the form XX:XX:XX:XX:XX:XX.\n"
+        "Inventory:\n"
+        "  --list-devices              List all paired Bluetooth audio devices\n"
+        "  --list-stacks               List installed A2DP services and their state\n"
+        "\n"
+        "Stack control (require Run as Administrator):\n"
+        "  --switch-stack ms|alt       Switch active A2DP stack and reconnect devices\n"
+        "  --start-service <name>      Start a Windows service by name\n"
+        "  --stop-service <name>       Stop a Windows service by name\n"
+        "\n"
+        "  --help                      Show this message\n"
         "\n"
         "With no arguments, OpenA2DP launches the GUI.\n");
+}
+
+static const char *conn_str(OA2DP_ConnState s)
+{
+    switch (s) {
+    case OA2DP_CONN_CONNECTED:    return "connected";
+    case OA2DP_CONN_CONNECTING:   return "connecting";
+    case OA2DP_CONN_DISCONNECTED: return "disconnected";
+    default:                      return "?";
+    }
+}
+
+static int cli_list_devices(void)
+{
+    OA2DP_DeviceList list;
+    memset(&list, 0, sizeof(list));
+    int n = oa2dp_device_scan(&list);
+    if (n < 0) {
+        fprintf(stderr, "OpenA2DP: device scan failed\n");
+        return 1;
+    }
+    if (n == 0) {
+        printf("No paired Bluetooth audio devices found.\n");
+        return 0;
+    }
+    printf("%-22s  %-13s  %s\n", "ADDRESS", "STATE", "NAME");
+    for (int i = 0; i < list.count; i++) {
+        printf("%-22s  %-13s  %s\n",
+               list.profiles[i].device_id,
+               conn_str(list.statuses[i].connection),
+               list.profiles[i].display_name);
+    }
+    return 0;
+}
+
+static int cli_list_stacks(void)
+{
+    OA2DP_DriverList list;
+    memset(&list, 0, sizeof(list));
+    int n = oa2dp_driver_scan(&list);
+    if (n < 0) {
+        fprintf(stderr, "OpenA2DP: driver scan failed\n");
+        return 1;
+    }
+    if (n == 0) {
+        printf("No A2DP-related services found.\n");
+        return 0;
+    }
+    char active[64];
+    oa2dp_driver_active_stack_label(&list, active, sizeof(active));
+    printf("Active stack: %s\n", active);
+    printf("%-20s  %-10s  %s\n", "NAME", "STATE", "DISPLAY NAME");
+    for (int i = 0; i < list.count; i++) {
+        printf("%-20s  %-10s  %s\n",
+               list.services[i].name,
+               oa2dp_driver_state_label(list.services[i].state),
+               list.services[i].display_name);
+    }
+    return 0;
+}
+
+static int cli_switch_stack(const wchar_t *target_arg)
+{
+    if (!oa2dp_process_is_elevated()) {
+        fprintf(stderr,
+                "error: --switch-stack needs Administrator. "
+                "Relaunch from an elevated terminal.\n");
+        return 1;
+    }
+    OA2DP_StackTarget target;
+    if (wcscmp(target_arg, L"ms") == 0 ||
+        wcscmp(target_arg, L"microsoft") == 0) {
+        target = OA2DP_STACK_MICROSOFT;
+    } else if (wcscmp(target_arg, L"alt") == 0 ||
+               wcscmp(target_arg, L"alternative") == 0) {
+        target = OA2DP_STACK_ALTERNATIVE;
+    } else {
+        fprintf(stderr, "error: --switch-stack expects 'ms' or 'alt'\n");
+        return 2;
+    }
+
+    OA2DP_DriverList drivers;
+    OA2DP_DeviceList devices;
+    memset(&drivers, 0, sizeof(drivers));
+    memset(&devices, 0, sizeof(devices));
+    oa2dp_driver_scan(&drivers);
+    oa2dp_device_scan(&devices);
+
+    fprintf(stderr, "OpenA2DP: switching stack...\n");
+    int rc = oa2dp_stack_switch_sync(target, &drivers, &devices);
+    fprintf(stderr, rc == 0
+                       ? "OpenA2DP: stack switch complete\n"
+                       : "OpenA2DP: stack switch FAILED\n");
+    return rc == 0 ? 0 : 1;
 }
 
 /* ── public API ─────────────────────────────────────────────────────── */
@@ -136,6 +245,50 @@ int oa2dp_cli_run(int argc, wchar_t **argv)
         print_usage();
         return 0;
     }
+
+    /* ── Inventory commands (no extra arg) ──────────────────────── */
+
+    if (wcscmp(cmd, L"--list-devices") == 0)
+        return cli_list_devices();
+    if (wcscmp(cmd, L"--list-stacks") == 0)
+        return cli_list_stacks();
+
+    /* ── Stack switch (one positional arg: target) ──────────────── */
+
+    if (wcscmp(cmd, L"--switch-stack") == 0) {
+        if (argc < 3) {
+            fprintf(stderr, "error: --switch-stack needs 'ms' or 'alt'\n");
+            return 2;
+        }
+        return cli_switch_stack(argv[2]);
+    }
+
+    /* ── Service start/stop (one positional arg: service name) ─── */
+
+    if (wcscmp(cmd, L"--start-service") == 0 ||
+        wcscmp(cmd, L"--stop-service") == 0) {
+        if (argc < 3) {
+            fprintf(stderr, "error: %ls needs a service name\n", cmd);
+            return 2;
+        }
+        if (!oa2dp_process_is_elevated()) {
+            fprintf(stderr,
+                    "error: %ls needs Administrator. "
+                    "Relaunch from an elevated terminal.\n", cmd);
+            return 1;
+        }
+        char svc_name[64];
+        wide_to_utf8(argv[2], svc_name, sizeof(svc_name));
+        int rc = (wcscmp(cmd, L"--start-service") == 0)
+                     ? oa2dp_driver_start(svc_name)
+                     : oa2dp_driver_stop(svc_name);
+        fprintf(stderr, rc == 0 ? "OpenA2DP: %ls '%s' OK\n"
+                                 : "OpenA2DP: %ls '%s' FAILED\n",
+                cmd, svc_name);
+        return rc == 0 ? 0 : 1;
+    }
+
+    /* ── Per-device action commands (one positional arg: address) */
 
     if (argc < 3) {
         fprintf(stderr, "error: missing <bluetooth-address>\n\n");
