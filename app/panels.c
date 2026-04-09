@@ -8,6 +8,11 @@
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #include "cimgui.h"
 
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+
 #include "panels.h"
 #include "oa2dp_log.h"
 #include "oa2dp_config.h"
@@ -48,6 +53,27 @@ static ImVec4_c conn_color(OA2DP_ConnState s)
 }
 
 /* ── Device list (left panel) ───────────────────────────────────────── */
+
+/* Compute the screen-space center of the main host window.  Used to
+ * position modal popups that would otherwise drift to the wrong
+ * monitor under ImGui's multi-viewport mode (where popup positions
+ * are absolute screen coordinates, not host-relative). */
+static ImVec2_c host_window_center(void *hwnd_void)
+{
+    ImVec2_c c = { 0.0f, 0.0f };
+    if (!hwnd_void) {
+        ImGuiViewport *vp = igGetMainViewport();
+        c.x = vp->WorkPos.x + vp->WorkSize.x * 0.5f;
+        c.y = vp->WorkPos.y + vp->WorkSize.y * 0.5f;
+        return c;
+    }
+    RECT r;
+    if (GetWindowRect((HWND)hwnd_void, &r)) {
+        c.x = (float)((r.left + r.right) / 2);
+        c.y = (float)((r.top + r.bottom) / 2);
+    }
+    return c;
+}
 
 static ImVec4_c svc_state_color(OA2DP_ServiceState s)
 {
@@ -104,11 +130,8 @@ static void draw_drivers_section(OA2DP_UIState *ui)
         }
 
         /* Modal confirmation popup. */
-        ImVec2_c center;
-        ImGuiViewport *vp = igGetMainViewport();
-        center.x = vp->WorkPos.x + vp->WorkSize.x * 0.5f;
-        center.y = vp->WorkPos.y + vp->WorkSize.y * 0.5f;
-        igSetNextWindowPos(center, ImGuiCond_Appearing, (ImVec2_c){0.5f, 0.5f});
+        ImVec2_c center = host_window_center(ui->hwnd);
+        igSetNextWindowPos(center, ImGuiCond_Always, (ImVec2_c){0.5f, 0.5f});
         if (igBeginPopupModal("##confirm_stack_switch", NULL,
                               ImGuiWindowFlags_AlwaysAutoResize |
                               ImGuiWindowFlags_NoMove)) {
@@ -257,11 +280,8 @@ static void draw_device_list(OA2DP_UIState *ui)
         if (igButton("Reset All Settings to Defaults", btn))
             igOpenPopup_Str("##confirm_reset_settings", 0);
 
-        ImVec2_c center;
-        ImGuiViewport *vp = igGetMainViewport();
-        center.x = vp->WorkPos.x + vp->WorkSize.x * 0.5f;
-        center.y = vp->WorkPos.y + vp->WorkSize.y * 0.5f;
-        igSetNextWindowPos(center, ImGuiCond_Appearing, (ImVec2_c){0.5f, 0.5f});
+        ImVec2_c center = host_window_center(ui->hwnd);
+        igSetNextWindowPos(center, ImGuiCond_Always, (ImVec2_c){0.5f, 0.5f});
         if (igBeginPopupModal("##confirm_reset_settings", NULL,
                               ImGuiWindowFlags_AlwaysAutoResize |
                               ImGuiWindowFlags_NoMove)) {
