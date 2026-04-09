@@ -82,6 +82,10 @@ service/      Device enumeration, notifications, runtime status, actions
   altdriver_config.c Read+write Alternative A2DP Driver per-device codec config
                     via its registry storage; bit-encoding decoded for SBC + AAC
   registry_probe.c  Read-only registry diagnostic dump (used by --probe-registry)
+  remote_events.cpp Bluetooth remote-control event observer: WH_KEYBOARD_LL hook
+                    for media keys + WASAPI default-endpoint volume polling
+  smtc_observer.cpp WinRT GlobalSystemMediaTransportControlsSessionManager poller
+                    (C++/WinRT) for AVRCP play/pause/next/prev events
   device_probe.c    Background worker for slow Bluetooth APIs (installed
                     services + battery via SetupAPI)
 
@@ -115,6 +119,9 @@ Data flows top-down: `app` calls `service`, `service` uses `core`. C++ files (re
 - **Background device probe**: `service/device_probe.c` is the off-thread home for Bluetooth APIs that block. Calls `BluetoothEnumerateInstalledServices` (which previously hung the UI when called inline — see commit 1af9b66), reads `DEVPKEY_Bluetooth_Battery` via SetupAPI, and pulls the Alt A2DP Driver per-device codec config (Capability + Current + Next) via `oa2dp_altdriver_read_current` / `_read_next`. Writes results back to the status struct atomically. Single-slot, triggered after the initial scan, after every device-change rescan, AND after every stack switch.
 - **Alternative A2DP Driver registry I/O**: `service/altdriver_config.c` reads from and writes to `HKLM\SYSTEM\CurrentControlSet\Services\AltA2DP\Parameters\Devices\{Capability,Current,Next}\<addr>`. The bit encoding for `SbcChannelMode` / `SbcSamplingFrequency` / `AacChannelMode` / `AacSamplingFrequency` etc. is documented in `include/oa2dp_altdriver_config.h` (decoded by inspecting Kevin's Pixel Buds Pro 2). `oa2dp_altdriver_write_next` requires admin and clamps `bitpool` to `Capability.SbcMaximumBitpool` unless the user explicitly enabled the override flag — exceeding the device's reported max can damage some chips.
 - **Cross-thread COM**: `audio_status.cpp` no longer caches a global enumerator. Each `audio_status_query` creates and releases its own per call. Worker threads (auto_heal especially) call `oa2dp_audio_status_thread_init` / `_thread_shutdown` to set up their own per-thread COM apartment.
+- **Remote-event tracking**: `service/remote_events.cpp` installs a `WH_KEYBOARD_LL` hook for `VK_MEDIA_*` virtual keys (catches BT drivers that synthesise media keystrokes) and polls the WASAPI default render endpoint's master volume on a 200 ms tick (catches AVRCP volume swipes regardless of driver). `service/smtc_observer.cpp` (C++/WinRT) polls `Windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager` for `PlaybackStatus`, track `Title`/`Artist`, and `SourceAppUserModelId` deltas (catches AVRCP play/pause/next/prev that flow through the SMTC route on Win10/11 — confirmed required for Pixel Buds Pro 2). All three surfaces log to the standard ring buffer with a `remote:` prefix. Build needs `runtimeobject.lib` + `oleaut32.lib` for cppwinrt.
+- **Endpoint-miss debouncing**: `oa2dp_audio_status_query` now runs on every 2 s refresh tick (not just on connect transitions), `endpoint_miss_count` field on `OA2DP_DeviceStatus` increments when the query misses on a connected device. The status panel's "connected but silent" warning only fires after `endpoint_miss_count >= 2` (~4 s) so transient races during codec switches don't false-trigger it.
+- **Per-field dirty highlighting**: `panels.c` `push_dirty_highlight` / `pop_dirty_highlight` helpers wrap each codec widget with an amber `ImGuiCol_FrameBg` when the profile field differs from the registry snapshot. Bitpool comparison uses the post-clamp effective value so the highlight matches what would actually get written.
 - **System tray**: `app/tray.c` adds a `Shell_NotifyIcon` and routes a custom `OA2DP_WM_TRAY` callback through the main WndProc. Right-click builds a fresh popup menu each time so it reflects current device/stack state. Minimize button hides to tray (`SC_MINIMIZE` intercepted in WndProc). `oa2dp_tray_notify` uses `NIM_MODIFY` with `NIF_INFO` for balloon notifications.
 - **CLI mode**: Two binaries from one .obj set (see Building section). `oa2dp_cli_run` in `app/cli.c` dispatches `--reconnect` / `--disable-hfp` / `--enable-a2dp` / `--list-devices` / `--list-stacks` / `--switch-stack ms|alt` / `--start-service` / `--stop-service`. Stack switch and service start/stop check `oa2dp_process_is_elevated` and refuse with a clear error when not admin.
 - **Stats counters**: `core/stats.c` keeps in-memory atomic counters (`InterlockedIncrement`) for reconnects, auto-heal triggers/recoveries/failures, HFP watchdog fires, and stack switches. Per-session, not persisted. Displayed as a footer in the device list panel.
@@ -149,6 +156,21 @@ v0.2 (complete):
 - ~~CLI mode (`--reconnect`, `--disable-hfp`, `--enable-a2dp`) for Task Scheduler use~~
 - ~~Honest status panel: dropped hard-coded SBC/bitpool fields, only show measured WASAPI values~~
 - ~~A2DP driver detection (read-only): logs all SCM services with "a2dp" in name/display name at startup~~
+
+v0.5.0 (complete, released 2026-04-09 — see [CHANGELOG.md](CHANGELOG.md)):
+
+- ~~Bluetooth remote-event observer (Phase A: keyboard hook + WASAPI volume polling)~~
+- ~~Bluetooth remote-event observer (Phase B: WinRT SMTC observer for AVRCP→SMTC events)~~
+- ~~Top-of-window stack indicator~~
+- ~~Device Capabilities subsection in the status panel~~
+- ~~AAC bitrate slider Capability cap~~
+- ~~Audio latency display (Current.Delay)~~
+- ~~Hover tooltips on every codec/SBC/AAC/watchdog widget~~
+- ~~Confirm modal before stack switching~~
+- ~~Per-field dirty highlighting on codec widgets~~
+- ~~Endpoint-miss debouncing on the "connected but silent" warning~~
+- ~~Custom application icon (artwork by Ramy W.)~~
+- ~~Real screenshot in README~~
 
 v0.4.0 (complete, released 2026-04-09 — see [CHANGELOG.md](CHANGELOG.md)):
 
