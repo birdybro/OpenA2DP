@@ -197,6 +197,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     /* ── A2DP driver detection ──────────────────────────────────
      * Populates g_ui.drivers so the UI panel can render and control
      * them.  Also logs each match at INFO level for the issue dump. */
+    oa2dp_log(OA2DP_LOG_INFO,
+              "process: running %s",
+              oa2dp_process_is_elevated()
+                  ? "elevated (Administrator)"
+                  : "non-elevated (service control disabled)");
     oa2dp_driver_scan(&g_ui.drivers);
 
     oa2dp_device_scan(&g_ui.devices);

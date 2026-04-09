@@ -75,6 +75,14 @@ int oa2dp_driver_stop(const char *service_name);
 /* Map state enum to short label for UI display. */
 const char *oa2dp_driver_state_label(OA2DP_ServiceState state);
 
+/*
+ * Returns 1 if the current process is running with elevated
+ * (Administrator) privileges, 0 otherwise.  Cached after the first
+ * call — process elevation can't change for the lifetime of the
+ * process, so this is safe to call every frame.
+ */
+int oa2dp_process_is_elevated(void);
+
 #ifdef __cplusplus
 }
 #endif

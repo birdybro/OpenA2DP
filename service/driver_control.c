@@ -49,6 +49,28 @@ static OA2DP_ServiceState map_state(DWORD scm_state)
     }
 }
 
+/* ── elevation check ────────────────────────────────────────────────── */
+
+int oa2dp_process_is_elevated(void)
+{
+    static int cached = -1;  /* -1 = not yet checked */
+    if (cached != -1) return cached;
+
+    cached = 0;
+    HANDLE token = NULL;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+        return cached;
+
+    TOKEN_ELEVATION elevation;
+    DWORD bytes = 0;
+    if (GetTokenInformation(token, TokenElevation,
+                            &elevation, sizeof(elevation), &bytes)) {
+        cached = elevation.TokenIsElevated ? 1 : 0;
+    }
+    CloseHandle(token);
+    return cached;
+}
+
 const char *oa2dp_driver_state_label(OA2DP_ServiceState s)
 {
     switch (s) {

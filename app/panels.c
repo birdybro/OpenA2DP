@@ -69,6 +69,8 @@ static void draw_drivers_section(OA2DP_UIState *ui)
         return;
     }
 
+    int elevated = oa2dp_process_is_elevated();
+
     for (int i = 0; i < ui->drivers.count; i++) {
         OA2DP_A2dpService *svc = &ui->drivers.services[i];
 
@@ -90,18 +92,20 @@ static void draw_drivers_section(OA2DP_UIState *ui)
 
         ImVec2_c btn = { 60, 0 };
 
-        bool can_start = (svc->state == OA2DP_SVC_STOPPED);
-        bool can_stop  = (svc->state == OA2DP_SVC_RUNNING ||
-                          svc->state == OA2DP_SVC_PAUSED);
+        /* Buttons are state-aware AND elevation-aware: even when the
+         * service state would allow Start/Stop, both are greyed if the
+         * process isn't elevated, since the call would just fail with
+         * ACCESS_DENIED. */
+        bool can_start = elevated && (svc->state == OA2DP_SVC_STOPPED);
+        bool can_stop  = elevated && (svc->state == OA2DP_SVC_RUNNING ||
+                                      svc->state == OA2DP_SVC_PAUSED);
 
         if (!can_start) igBeginDisabled(true);
         char start_id[80];
         snprintf(start_id, sizeof(start_id), "Start##svc%d", i);
         if (igButton(start_id, btn)) {
-            if (oa2dp_driver_start(svc->name) == 0)
-                oa2dp_driver_refresh(&ui->drivers, i);
-            else
-                oa2dp_driver_refresh(&ui->drivers, i);
+            oa2dp_driver_start(svc->name);
+            oa2dp_driver_refresh(&ui->drivers, i);
         }
         if (!can_start) igEndDisabled();
 
@@ -111,16 +115,21 @@ static void draw_drivers_section(OA2DP_UIState *ui)
         char stop_id[80];
         snprintf(stop_id, sizeof(stop_id), "Stop##svc%d", i);
         if (igButton(stop_id, btn)) {
-            if (oa2dp_driver_stop(svc->name) == 0)
-                oa2dp_driver_refresh(&ui->drivers, i);
-            else
-                oa2dp_driver_refresh(&ui->drivers, i);
+            oa2dp_driver_stop(svc->name);
+            oa2dp_driver_refresh(&ui->drivers, i);
         }
         if (!can_stop) igEndDisabled();
     }
 
     igSeparator();
-    igTextDisabled("Service control needs Run as Admin.");
+    if (elevated) {
+        ImVec4_c ok = { 0.2f, 0.9f, 0.2f, 1.0f };
+        igTextColored(ok, "Running as Administrator");
+    } else {
+        ImVec4_c warn = { 1.0f, 0.8f, 0.0f, 1.0f };
+        igTextColored(warn, "Not elevated — controls disabled");
+        igTextWrapped("Relaunch via Run as administrator to enable Start/Stop.");
+    }
 }
 
 static void draw_device_list(OA2DP_UIState *ui)
