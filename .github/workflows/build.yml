@@ -24,6 +24,14 @@ on:
 permissions:
   contents: write   # needed by softprops/action-gh-release for tag builds
 
+# Opt all JS-based actions into Node 24.  GitHub is deprecating
+# Node 20 actions: forced to Node 24 by default 2026-06-02, removed
+# entirely 2026-09-16.  Setting this env var now keeps the workflow
+# warning-free without waiting for each action to ship a Node 24
+# release.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     runs-on: windows-latest
