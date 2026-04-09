@@ -25,7 +25,7 @@
 #include "oa2dp_device.h"
 #include "oa2dp_audio_status.h"
 #include "oa2dp_config.h"
-#include "oa2dp_driver_detect.h"
+#include "oa2dp_driver_control.h"
 #include "oa2dp_hfp_watchdog.h"
 #include "oa2dp_log.h"
 
@@ -191,11 +191,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     if (oa2dp_audio_status_init() != 0)
         oa2dp_log(OA2DP_LOG_WARN, "audio status init failed, endpoint data unavailable");
 
-    /* ── A2DP driver detection (read-only inventory) ────────────── */
-    oa2dp_driver_detect_log();
-
     /* ── Device enumeration ─────────────────────────────────────── */
     oa2dp_ui_state_init(&g_ui);
+
+    /* ── A2DP driver detection ──────────────────────────────────
+     * Populates g_ui.drivers so the UI panel can render and control
+     * them.  Also logs each match at INFO level for the issue dump. */
+    oa2dp_driver_scan(&g_ui.drivers);
 
     oa2dp_device_scan(&g_ui.devices);
     save_new_profiles();

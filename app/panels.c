@@ -12,6 +12,7 @@
 #include "oa2dp_log.h"
 #include "oa2dp_config.h"
 #include "oa2dp_actions.h"
+#include "oa2dp_driver_control.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,9 +46,86 @@ static ImVec4_c conn_color(OA2DP_ConnState s)
 
 /* ── Device list (left panel) ───────────────────────────────────────── */
 
+static ImVec4_c svc_state_color(OA2DP_ServiceState s)
+{
+    ImVec4_c c;
+    switch (s) {
+    case OA2DP_SVC_RUNNING:        c.x=0.2f; c.y=0.9f; c.z=0.2f; c.w=1.0f; break;
+    case OA2DP_SVC_START_PENDING:
+    case OA2DP_SVC_STOP_PENDING:   c.x=1.0f; c.y=0.8f; c.z=0.0f; c.w=1.0f; break;
+    case OA2DP_SVC_STOPPED:        c.x=0.6f; c.y=0.6f; c.z=0.6f; c.w=1.0f; break;
+    default:                       c.x=0.8f; c.y=0.4f; c.z=0.4f; c.w=1.0f; break;
+    }
+    return c;
+}
+
+static void draw_drivers_section(OA2DP_UIState *ui)
+{
+    igText("A2DP Stacks");
+    igSeparator();
+
+    if (ui->drivers.count == 0) {
+        igTextDisabled("No A2DP services detected.");
+        return;
+    }
+
+    for (int i = 0; i < ui->drivers.count; i++) {
+        OA2DP_A2dpService *svc = &ui->drivers.services[i];
+
+        ImVec4_c col = svc_state_color(svc->state);
+        igTextColored(col, "%s", "(*)");
+        igSameLine(0, 4);
+        igText("%s", svc->name);
+
+        igSameLine(0, 6);
+        igTextDisabled("%s", oa2dp_driver_state_label(svc->state));
+
+        /* Tooltip with the full display name on hover. */
+        if (igIsItemHovered(ImGuiHoveredFlags_None)) {
+            igBeginTooltip();
+            igText("%s", svc->display_name);
+            igText("type: %s", svc->is_driver ? "kernel driver" : "win32 service");
+            igEndTooltip();
+        }
+
+        ImVec2_c btn = { 60, 0 };
+
+        bool can_start = (svc->state == OA2DP_SVC_STOPPED);
+        bool can_stop  = (svc->state == OA2DP_SVC_RUNNING ||
+                          svc->state == OA2DP_SVC_PAUSED);
+
+        if (!can_start) igBeginDisabled(true);
+        char start_id[80];
+        snprintf(start_id, sizeof(start_id), "Start##svc%d", i);
+        if (igButton(start_id, btn)) {
+            if (oa2dp_driver_start(svc->name) == 0)
+                oa2dp_driver_refresh(&ui->drivers, i);
+            else
+                oa2dp_driver_refresh(&ui->drivers, i);
+        }
+        if (!can_start) igEndDisabled();
+
+        igSameLine(0, 4);
+
+        if (!can_stop) igBeginDisabled(true);
+        char stop_id[80];
+        snprintf(stop_id, sizeof(stop_id), "Stop##svc%d", i);
+        if (igButton(stop_id, btn)) {
+            if (oa2dp_driver_stop(svc->name) == 0)
+                oa2dp_driver_refresh(&ui->drivers, i);
+            else
+                oa2dp_driver_refresh(&ui->drivers, i);
+        }
+        if (!can_stop) igEndDisabled();
+    }
+
+    igSeparator();
+    igTextDisabled("Service control needs Run as Admin.");
+}
+
 static void draw_device_list(OA2DP_UIState *ui)
 {
-    ImVec2_c size = { 200, 0 };
+    ImVec2_c size = { 280, 0 };
     igBeginChild_Str("##devlist", size, ImGuiChildFlags_Borders,
                      ImGuiWindowFlags_None);
 
@@ -68,6 +146,10 @@ static void draw_device_list(OA2DP_UIState *ui)
             ui->selected = i;
         }
     }
+
+    igSeparator();
+    igDummy((ImVec2_c){0, 4});
+    draw_drivers_section(ui);
 
     igEndChild();
 }

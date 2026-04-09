@@ -9,11 +9,15 @@
 #define OA2DP_PANELS_H
 
 #include "oa2dp_device.h"
+#include "oa2dp_driver_control.h"
 
 /* Aggregated UI state passed each frame. */
 typedef struct OA2DP_UIState {
     OA2DP_DeviceList    devices;
     int                 selected;       /* index into devices */
+
+    /* A2DP stack services discovered at startup (BthA2dp, AltA2DP, etc.) */
+    OA2DP_DriverList    drivers;
 
     /* Log panel state. */
     int                 log_show_level[4];  /* filter per OA2DP_LogLevel */
