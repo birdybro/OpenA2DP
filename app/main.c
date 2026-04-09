@@ -25,6 +25,7 @@
 #include "oa2dp_device.h"
 #include "oa2dp_device_probe.h"
 #include "oa2dp_audio_status.h"
+#include "oa2dp_audio_visualizer.h"
 #include "oa2dp_config.h"
 #include "oa2dp_driver_control.h"
 #include "oa2dp_hfp_watchdog.h"
@@ -325,6 +326,10 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
     if (oa2dp_audio_status_init() != 0)
         oa2dp_log(OA2DP_LOG_WARN, "audio status init failed, endpoint data unavailable");
 
+    /* ── Audio visualizer (loopback capture) ────────────────────── */
+    if (oa2dp_audio_visualizer_init() != 0)
+        oa2dp_log(OA2DP_LOG_WARN, "visualizer init failed, no audio bars");
+
     /* ── Device enumeration ─────────────────────────────────────── */
     oa2dp_ui_state_init(&g_ui);
     g_ui.advanced_mode = loaded_advanced;
@@ -449,6 +454,7 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
     oa2dp_remote_events_shutdown();
     oa2dp_tray_shutdown();
     oa2dp_device_unregister_notify();
+    oa2dp_audio_visualizer_shutdown();
     oa2dp_audio_status_shutdown();
     oa2dp_renderer_shutdown();
     if (IsWindow(hwnd))

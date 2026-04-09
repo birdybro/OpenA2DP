@@ -77,6 +77,7 @@ set CPP_SRCS=%CPP_SRCS% "%SRC_APP%\renderer.cpp"
 set CPP_SRCS=%CPP_SRCS% "%SRC_SVC%\audio_status.cpp"
 set CPP_SRCS=%CPP_SRCS% "%SRC_SVC%\remote_events.cpp"
 set CPP_SRCS=%CPP_SRCS% "%SRC_SVC%\smtc_observer.cpp"
+set CPP_SRCS=%CPP_SRCS% "%SRC_SVC%\audio_visualizer.cpp"
 
 :: ── C sources (core + main) ───────────────────────────────────────
 set C_SRCS=

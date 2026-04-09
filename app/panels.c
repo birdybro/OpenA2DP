@@ -18,6 +18,7 @@
 #include "oa2dp_config.h"
 #include "oa2dp_actions.h"
 #include "oa2dp_altdriver_config.h"
+#include "oa2dp_audio_visualizer.h"
 #include "oa2dp_driver_control.h"
 #include "oa2dp_history.h"
 #include "oa2dp_stats.h"
@@ -53,6 +54,72 @@ static ImVec4_c conn_color(OA2DP_ConnState s)
 }
 
 /* ── Device list (left panel) ───────────────────────────────────────── */
+
+/* Pack 8-bit RGBA into ImGui's ImU32 color format (ABGR on
+ * little-endian, which is what cimgui expects).  Used by the audio
+ * visualizer to colour bars without going through ImVec4 → U32. */
+static ImU32 vis_rgba(int r, int g, int b, int a)
+{
+    return ((ImU32)(a & 0xFF) << 24) |
+           ((ImU32)(b & 0xFF) << 16) |
+           ((ImU32)(g & 0xFF) <<  8) |
+           ((ImU32)(r & 0xFF));
+}
+
+/* Draw a WASAPI-loopback spectrum visualizer that fills the
+ * available content region of its parent child window.  Reads
+ * OA2DP_VIS_BANDS magnitudes from the audio_visualizer worker
+ * (each in [0..1]) and renders them as colored bars. */
+static void draw_audio_visualizer(void)
+{
+    const int   N   = OA2DP_VIS_BANDS;
+    const float pad = 4.0f;
+    const float gap = 1.0f;
+
+    float bands[OA2DP_VIS_BANDS];
+    oa2dp_audio_visualizer_get_bands(bands, N);
+
+    ImVec2_c avail = igGetContentRegionAvail();
+    float W = avail.x;
+    float H = avail.y;
+    if (W < 1.0f || H < 1.0f) return;
+
+    ImVec2_c p0 = igGetCursorScreenPos();
+    ImVec2_c p1 = { p0.x + W, p0.y + H };
+    ImDrawList *dl = igGetWindowDrawList();
+
+    /* Background panel + 1px border. */
+    ImDrawList_AddRectFilled(dl, p0, p1, vis_rgba(12, 14, 22, 255), 4.0f, 0);
+    ImDrawList_AddRect(dl, p0, p1, vis_rgba(60, 70, 90, 255), 4.0f, 0, 1.0f);
+
+    float bar_w  = (W - pad * 2.0f - gap * (N - 1)) / (float)N;
+    float bottom = p1.y - pad;
+    float top    = p0.y + pad;
+    float bar_h  = bottom - top;
+
+    for (int i = 0; i < N; i++) {
+        float v = bands[i];
+        if (v < 0.0f) v = 0.0f;
+        if (v > 1.0f) v = 1.0f;
+
+        float h = bar_h * v;
+        if (h < 1.0f && v > 0.0f) h = 1.0f;
+
+        ImVec2_c b0 = { p0.x + pad + i * (bar_w + gap), bottom - h };
+        ImVec2_c b1 = { b0.x + bar_w, bottom };
+
+        /* Color gradient from cyan (low energy) → green → yellow → red. */
+        int r  = (int)(40.0f  + 215.0f * v);
+        int g  = (int)(220.0f - 100.0f * v * v);
+        int bl = (int)(180.0f * (1.0f - v));
+        ImU32 col = vis_rgba(r, g, bl, 255);
+
+        ImDrawList_AddRectFilled(dl, b0, b1, col, 1.0f, 0);
+    }
+
+    /* Reserve the layout space so the child auto-sizes correctly. */
+    igDummy((ImVec2_c){ W, H });
+}
 
 /* Compute the screen-space center of the main host window.  Used to
  * position modal popups that would otherwise drift to the wrong
@@ -230,7 +297,19 @@ static void draw_drivers_section(OA2DP_UIState *ui)
 
 static void draw_device_list(OA2DP_UIState *ui)
 {
-    ImVec2_c size = { 280, 0 };
+    /* Wrap the device-list child + visualizer child in a Group so
+     * they behave as a single layout item.  Without this, the
+     * SameLine call after draw_device_list() returns would anchor
+     * to the bottom-right of the visualizer (the last child drawn)
+     * instead of the top-right of the device list, which would
+     * push the right-hand panel down and leave a big empty gap. */
+    igBeginGroup();
+
+    /* Negative height = "available - |value|", reserving room for
+     * the visualizer child that gets drawn below this one in the
+     * same column. */
+    const float vis_block_h = 90.0f;
+    ImVec2_c size = { 280, -(vis_block_h + 4.0f) };
     igBeginChild_Str("##devlist", size, ImGuiChildFlags_Borders,
                      ImGuiWindowFlags_None);
 
@@ -342,6 +421,21 @@ static void draw_device_list(OA2DP_UIState *ui)
     }
 
     igEndChild();
+
+    /* ── Audio visualizer in its own dedicated child below the
+     * device list.  Fills 100% of the child's content region.
+     * Visible in both simple and advanced modes — even with no
+     * headphones connected you can see the system audio playback. */
+    {
+        ImVec2_c vis_size = { 280, 90 };
+        igBeginChild_Str("##visualizer", vis_size, ImGuiChildFlags_Borders,
+                         ImGuiWindowFlags_NoScrollbar |
+                         ImGuiWindowFlags_NoScrollWithMouse);
+        draw_audio_visualizer();
+        igEndChild();
+    }
+
+    igEndGroup();
 }
 
 /* Push an amber FrameBg style for the next widget so the user can
