@@ -47,8 +47,17 @@ del /q "%OUTDIR%\*.lib" 2>nul
 set INCLUDES=/I"%ROOT%\include" /I"%CIMGUI%" /I"%IMGUI%" /I"%BACKENDS%" /I"%SRC_APP%"
 
 :: ── Compiler flags ─────────────────────────────────────────────────
-set CFLAGS=/nologo /W4 /O2 /DNDEBUG /DUNICODE /D_UNICODE
-set CPPFLAGS=%CFLAGS% /EHsc /std:c++17
+::
+:: Optimization stack:
+::   /O2     - speed-favored optimizations (default for an interactive app)
+::   /GL     - whole-program optimization (cross-TU inlining + dead-code)
+::   /Gy     - function-level linking, required for /OPT:REF to drop funcs
+::   /MT     - static CRT, no VC++ redistributable needed on target machine
+::   /Zc:inline - strip unreferenced inline functions from .obj
+::
+:: C++ adds /GR- (no RTTI, we don't use dynamic_cast/typeid).
+set CFLAGS=/nologo /W4 /O2 /GL /Gy /MT /Zc:inline /DNDEBUG /DUNICODE /D_UNICODE
+set CPPFLAGS=%CFLAGS% /EHsc /GR- /std:c++17
 
 :: ── C++ sources (imgui + cimgui + backends + renderer) ─────────────
 set CPP_SRCS=
@@ -56,6 +65,10 @@ set CPP_SRCS=%CPP_SRCS% "%IMGUI%\imgui.cpp"
 set CPP_SRCS=%CPP_SRCS% "%IMGUI%\imgui_draw.cpp"
 set CPP_SRCS=%CPP_SRCS% "%IMGUI%\imgui_tables.cpp"
 set CPP_SRCS=%CPP_SRCS% "%IMGUI%\imgui_widgets.cpp"
+:: imgui_demo.cpp is required because cimgui.cpp exports wrappers
+:: for ShowDemoWindow / ShowAboutWindow / etc. that reference its
+:: symbols.  /Gy + /OPT:REF will still drop the unused functions
+:: at link time.
 set CPP_SRCS=%CPP_SRCS% "%IMGUI%\imgui_demo.cpp"
 set CPP_SRCS=%CPP_SRCS% "%CIMGUI%\cimgui.cpp"
 set CPP_SRCS=%CPP_SRCS% "%BACKENDS%\imgui_impl_win32.cpp"
@@ -127,17 +140,22 @@ if %errorlevel% neq 0 (
 :: appropriate one for each subsystem and the other becomes dead code.
 echo --- Linking GUI binary ---
 set LIBS=d3d11.lib dxgi.lib user32.lib gdi32.lib shell32.lib dwmapi.lib bthprops.lib ole32.lib propsys.lib advapi32.lib setupapi.lib runtimeobject.lib oleaut32.lib
-link /nologo /subsystem:windows /out:"%EXE_GUI%" %OUTDIR%\*.obj "%OUTDIR%\version_gui.res" %LIBS%
+link /nologo /subsystem:windows /LTCG /OPT:REF /OPT:ICF /INCREMENTAL:NO /out:"%EXE_GUI%" %OUTDIR%\*.obj "%OUTDIR%\version_gui.res" %LIBS%
 if %errorlevel% neq 0 (
     echo GUI link FAILED
     exit /b 1
 )
 
 echo --- Linking CLI binary ---
-link /nologo /subsystem:console /out:"%EXE_CLI%" %OUTDIR%\*.obj "%OUTDIR%\version_cli.res" %LIBS%
+link /nologo /subsystem:console /LTCG /OPT:REF /OPT:ICF /INCREMENTAL:NO /out:"%EXE_CLI%" %OUTDIR%\*.obj "%OUTDIR%\version_cli.res" %LIBS%
 if %errorlevel% neq 0 (
     echo CLI link FAILED
     exit /b 1
 )
+
+:: Wipe link by-products that aren't needed at runtime.
+del /q "%OUTDIR%\*.ilk" 2>nul
+del /q "%OUTDIR%\*.exp" 2>nul
+del /q "%OUTDIR%\*.lib" 2>nul
 
 echo --- Build OK: %EXE_GUI% + %EXE_CLI% ---
