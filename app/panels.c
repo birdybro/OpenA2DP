@@ -14,6 +14,7 @@
 #include "oa2dp_actions.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -342,6 +343,62 @@ static const ImVec4_c log_colors[] = {
 
 static const char *log_level_names[] = { "DEBUG", "INFO", "WARN", "ERROR" };
 
+/*
+ * Build a single newline-separated text dump of the log buffer
+ * (filtered by the current UI severity toggles) and put it on the
+ * system clipboard via cimgui.  Intended for "copy and paste into a
+ * GitHub issue" workflows.
+ *
+ * Caller is responsible for ensuring filters are set the way the user
+ * wants — we just dump whatever passes them.
+ */
+static void copy_log_to_clipboard(const OA2DP_UIState *ui)
+{
+    const OA2DP_LogBuffer *buf = oa2dp_log_get_buffer();
+    if (!buf || buf->count == 0) {
+        igSetClipboardText("OpenA2DP log is empty.\n");
+        return;
+    }
+
+    /* Worst-case size: every entry up to ~600 chars + a small header.
+     * Cheaper to over-allocate once than grow dynamically. */
+    size_t cap = 256 + (size_t)buf->count * (OA2DP_LOG_MSG_MAX + 64);
+    char *out = (char *)malloc(cap);
+    if (!out) return;
+
+    int n = snprintf(out, cap,
+                     "OpenA2DP log dump (%d entries)\n"
+                     "----------------------------------------\n",
+                     buf->count);
+    if (n < 0 || (size_t)n >= cap) { free(out); return; }
+    size_t off = (size_t)n;
+
+    int start = (buf->count < OA2DP_LOG_RING_SIZE) ? 0 : buf->head;
+
+    for (int i = 0; i < buf->count; i++) {
+        int idx = (start + i) % OA2DP_LOG_RING_SIZE;
+        const OA2DP_LogEntry *e = &buf->entries[idx];
+
+        if (e->level < OA2DP_LOG_COUNT && !ui->log_show_level[e->level])
+            continue;
+
+        struct tm tm_buf;
+        localtime_s(&tm_buf, &e->timestamp);
+        char ts[32];
+        strftime(ts, sizeof(ts), "%H:%M:%S", &tm_buf);
+
+        int written = snprintf(out + off, cap - off,
+                               "[%s] [%-5s] %s\n",
+                               ts, oa2dp_log_level_str(e->level), e->message);
+        if (written < 0) break;
+        off += (size_t)written;
+        if (off >= cap - 1) break;
+    }
+
+    igSetClipboardText(out);
+    free(out);
+}
+
 static void draw_log(OA2DP_UIState *ui)
 {
     /* ── Toolbar row ────────────────────────────────────────────── */
@@ -368,6 +425,16 @@ static void draw_log(OA2DP_UIState *ui)
         ImVec2_c btn = { 50, 0 };
         if (igButton("Clear", btn))
             oa2dp_log_clear();
+    }
+
+    igSameLine(0, 4);
+    {
+        ImVec2_c btn = { 110, 0 };
+        if (igButton("Copy for Issue", btn)) {
+            copy_log_to_clipboard(ui);
+            oa2dp_log(OA2DP_LOG_INFO,
+                      "log: copied filtered entries to clipboard");
+        }
     }
 
     igSeparator();
