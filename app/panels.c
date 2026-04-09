@@ -395,28 +395,11 @@ static void draw_status(OA2DP_UIState *ui)
             igTableNextColumn(); igText("%s", s->endpoint_name);
         }
 
-        /* Installed Bluetooth services on this device record. */
-        igTableNextRow(0, 0);
-        igTableNextColumn(); igText("AudioSink (A2DP)");
-        igTableNextColumn();
-        {
-            ImVec4_c on  = { 0.2f, 0.9f, 0.2f, 1.0f };
-            ImVec4_c off = { 0.6f, 0.6f, 0.6f, 1.0f };
-            igTextColored(s->audio_sink_installed ? on : off,
-                          "%s",
-                          s->audio_sink_installed ? "installed" : "not installed");
-        }
-
-        igTableNextRow(0, 0);
-        igTableNextColumn(); igText("Handsfree (HFP)");
-        igTableNextColumn();
-        {
-            ImVec4_c on  = { 1.0f, 0.7f, 0.0f, 1.0f }; /* yellow — usually unwanted */
-            ImVec4_c off = { 0.6f, 0.6f, 0.6f, 1.0f };
-            igTextColored(s->handsfree_installed ? on : off,
-                          "%s",
-                          s->handsfree_installed ? "installed" : "not installed");
-        }
+        /* AudioSink/Handsfree install flags would go here, but
+         * BluetoothEnumerateInstalledServices blocks the UI thread
+         * for too long to call from this function — see the comment
+         * in service/device_enum.c.  Until that's reworked off-thread
+         * the install flags are not displayed. */
 
         if (s->sample_rate > 0) {
             igTableNextRow(0, 0);
