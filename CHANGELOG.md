@@ -8,6 +8,77 @@ versioning loosely follows [SemVer](https://semver.org/).
 
 Nothing yet.
 
+## [0.5.0] — 2026-04-09
+
+Polish, observability, and cosmetics on top of the v0.4 Alt A2DP
+integration. Headline features: full Bluetooth remote-event
+debug logging, per-field dirty highlighting, capability inspection,
+custom application icon.
+
+### Added
+
+- **Bluetooth remote-event observer** with two surfaces:
+  - **Phase A**: low-level keyboard hook for `VK_MEDIA_*` virtual
+    keys (catches BT drivers that translate AVRCP to synthetic
+    keystrokes), and WASAPI default-endpoint master volume polling
+    (catches AVRCP volume swipes regardless of driver).
+  - **Phase B**: WinRT `GlobalSystemMediaTransportControlsSessionManager`
+    polling (catches AVRCP play/pause/next/prev events that go
+    through the SMTC route on Win10/11 instead of synthesizing
+    keystrokes — confirmed needed for Pixel Buds Pro 2).
+  - All events log to the standard ring buffer with `remote:`
+    prefix; the user reads them and correlates with whatever
+    gesture their device uses.
+- **Stack indicator at the top of the window** — single colored
+  line above the side-by-side layout shows the inferred active
+  A2DP stack (Microsoft / Alternative / Multiple / None) so you
+  don't need to scroll the status panel to see it.
+- **Device Capabilities subsection** in the status panel reads
+  the full `Capability\<addr>` registry subtree and renders the
+  device's claimed supported codec list, SBC channel modes /
+  rates / bitpool range, AAC channel modes / rates / max +
+  peak bitrate.
+- **AAC bitrate slider** now caps at the device's reported
+  `Capability.AacBitrate` (256 kbps for Pixel Buds Pro 2) instead
+  of the previous hardcoded 320.
+- **Audio Latency** row in the status panel reads
+  `Current.Delay` (Alt A2DP Driver, 1/10 ms units).
+- **Hover tooltips** on every codec / SBC / AAC / watchdog widget
+  with explanations of what they do, via a small `hover_help`
+  helper that wraps text at 360 px.
+- **Confirm modal** before stack switching — "Use Microsoft" /
+  "Use Alternative" buttons now open a centered modal popup
+  describing what's about to happen and asking the user to
+  confirm with Switch / Cancel buttons. Stack switching is a
+  ~30s destructive operation that's easy to mis-click.
+- **Per-field dirty highlighting** — codec widgets whose value
+  differs from the registry snapshot get an amber `FrameBg`,
+  so the user can see exactly which fields they've edited
+  (in addition to the existing global Apply button).
+- **Custom application icon** embedded in both binaries via
+  `IDI_APP_ICON` resource. Generated from `icon.png` by a small
+  `scripts/png_to_ico.ps1` PowerShell helper that wraps the PNG
+  in a single-entry .ico container. Used for window class
+  hIcon/hIconSm and the Shell_NotifyIcon tray. Artwork by
+  Ramy W. on Flaticon.
+- **Real screenshot in README** showing a fully populated v0.4+
+  main window. Replaces the "Coming soon" placeholder.
+
+### Changed
+
+- **`audio_status_query` runs on every refresh tick** (not just
+  on connect transitions) so the WASAPI mix-format / sample
+  rate / channels stay current mid-session.
+- **Endpoint-miss debouncing** — the "connected but silent"
+  warning now requires ≥2 consecutive failed audio status
+  queries (~4 s) before firing, so transient races during
+  codec switches don't false-trigger it.
+- **SMTC log lines are codec-neutral** — dropped the
+  Pixel-Buds-Pro-2-specific "(likely tap or app control)"
+  qualifiers. Different headphones map gestures differently;
+  the events we observe (playback state change, track change,
+  volume change) are universal.
+
 ## [0.4.0] — 2026-04-09
 
 The big "Alternative A2DP Driver integration" release. The codec
@@ -167,7 +238,8 @@ reconnect/reset actions, INI profile persistence with
 auto-save, and the `docs/driver-evaluation.md` write-up
 deciding to stay in user-mode (no KMDF driver).
 
-[Unreleased]: https://github.com/birdybro/OpenA2DP/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/birdybro/OpenA2DP/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/birdybro/OpenA2DP/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/birdybro/OpenA2DP/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/birdybro/OpenA2DP/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/birdybro/OpenA2DP/compare/v0.1.0...v0.2.0
