@@ -76,6 +76,7 @@ Data flows top-down: `app` calls `service`, `service` uses `core`. C++ files (re
 
 - **Device scan**: `BluetoothFindFirstDevice`/`BluetoothFindNextDevice`, filtered by Class of Device audio bits
 - **Status refresh**: `BluetoothGetDeviceInfo` for connection state, MMDevice `IAudioClient::GetMixFormat` for audio endpoint data
+- **Endpoint matching**: `oa2dp_audio_status_query` does two passes — first looks for the BT address (lowercase, no separators) inside the WASAPI endpoint device ID (works for the Microsoft stack), then falls back to substring-matching the device's display name against `PKEY_Device_FriendlyName` (works for Alternative A2DP Driver and other stacks that don't embed the address in IDs). On a complete miss it dumps all enumerated render endpoints to the log so the matcher can be iterated on real data.
 - **Reconnect/reset**: `BluetoothSetServiceState` to toggle AudioSink/Handsfree services, with retry logic
 - **Auto-heal**: Per-device opt-in (`auto_heal_enabled` in profile). Triggered from `oa2dp_device_refresh_status` on a disconnected→connected transition. Worker thread waits a settle period, probes WASAPI via `oa2dp_audio_status_query`, and runs a synchronous reconnect cycle if no endpoint is found, with a hard attempt cap. Skips attempts when `oa2dp_action_busy()` is set so it can't race a manual button click. Single-slot via its own busy flag.
 - **Config persistence**: INI files via `oa2dp_profile_save`/`oa2dp_profile_load`, dirty detection via memcmp snapshot
