@@ -2,7 +2,22 @@
 setlocal enabledelayedexpansion
 
 :: ── Setup MSVC environment ─────────────────────────────────────────
-call "C:\Program Files\Microsoft Visual Studio\18\Professional\VC\Auxiliary\Build\vcvarsall.bat" x64 >nul 2>&1
+::
+:: If cl.exe is already on PATH (e.g. CI runners that use
+:: ilammy/msvc-dev-cmd to set up the environment, or a Developer
+:: Command Prompt the user opened manually) skip the local
+:: vcvarsall.bat call.  Otherwise fall back to the hardcoded
+:: VS 2026 path used for local development on Kevin's machine.
+where cl.exe >nul 2>&1
+if errorlevel 1 (
+    call "C:\Program Files\Microsoft Visual Studio\18\Professional\VC\Auxiliary\Build\vcvarsall.bat" x64 >nul 2>&1
+)
+where cl.exe >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: cl.exe not found.  Either run from a Developer Command
+    echo Prompt, or install Visual Studio with "Desktop development with C++".
+    exit /b 1
+)
 
 :: ── Paths ──────────────────────────────────────────────────────────
 set ROOT=%~dp0..
@@ -24,6 +39,7 @@ if not exist "%OUTDIR%" mkdir "%OUTDIR%"
 :: Wipe them every build — the project's small enough that a full
 :: recompile is fast and avoids stale-symbol bugs entirely.
 del /q "%OUTDIR%\*.obj" 2>nul
+del /q "%OUTDIR%\*.res" 2>nul
 del /q "%OUTDIR%\*.exp" 2>nul
 del /q "%OUTDIR%\*.lib" 2>nul
 
@@ -83,6 +99,20 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
+:: ── Compile VERSIONINFO resources ──────────────────────────────────
+:: Per-binary so each .exe has its own OriginalFilename / etc.
+echo --- Compiling resources ---
+rc /nologo /fo "%OUTDIR%\version_gui.res" "%~dp0version_gui.rc" >nul
+if %errorlevel% neq 0 (
+    echo GUI resource compile FAILED
+    exit /b 1
+)
+rc /nologo /fo "%OUTDIR%\version_cli.res" "%~dp0version_cli.rc" >nul
+if %errorlevel% neq 0 (
+    echo CLI resource compile FAILED
+    exit /b 1
+)
+
 :: ── Link ───────────────────────────────────────────────────────────
 ::
 :: Two binaries from the same .obj set:
@@ -93,14 +123,14 @@ if %errorlevel% neq 0 (
 :: appropriate one for each subsystem and the other becomes dead code.
 echo --- Linking GUI binary ---
 set LIBS=d3d11.lib dxgi.lib user32.lib gdi32.lib shell32.lib dwmapi.lib bthprops.lib ole32.lib propsys.lib advapi32.lib setupapi.lib
-link /nologo /subsystem:windows /out:"%EXE_GUI%" %OUTDIR%\*.obj %LIBS%
+link /nologo /subsystem:windows /out:"%EXE_GUI%" %OUTDIR%\*.obj "%OUTDIR%\version_gui.res" %LIBS%
 if %errorlevel% neq 0 (
     echo GUI link FAILED
     exit /b 1
 )
 
 echo --- Linking CLI binary ---
-link /nologo /subsystem:console /out:"%EXE_CLI%" %OUTDIR%\*.obj %LIBS%
+link /nologo /subsystem:console /out:"%EXE_CLI%" %OUTDIR%\*.obj "%OUTDIR%\version_cli.res" %LIBS%
 if %errorlevel% neq 0 (
     echo CLI link FAILED
     exit /b 1

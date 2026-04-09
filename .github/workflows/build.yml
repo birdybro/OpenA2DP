@@ -1,0 +1,74 @@
+# OpenA2DP CI: builds OpenA2DP.exe + OpenA2DP-cli.exe on Windows.
+#
+# - Pushes to main and pull requests build the binaries and upload
+#   them as workflow artifacts so the latest main is always one
+#   click away in the Actions tab.
+# - Tag pushes matching v*.*.* additionally zip the binaries and
+#   attach them to a GitHub Release of the same name (created if
+#   it doesn't exist).
+#
+# The build environment is set up by ilammy/msvc-dev-cmd, which
+# puts cl.exe / link.exe / rc.exe on PATH.  scripts/build.bat
+# auto-detects this and skips its hardcoded vcvarsall.bat fallback.
+
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags:     ['v*.*.*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # needed by softprops/action-gh-release for tag builds
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive   # cimgui + nested imgui
+
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build both binaries
+        shell: cmd
+        run: scripts\build.bat
+
+      - name: Show resulting binaries
+        shell: cmd
+        run: dir build\OpenA2DP*.exe
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenA2DP-windows-x64
+          path: |
+            build/OpenA2DP.exe
+            build/OpenA2DP-cli.exe
+          if-no-files-found: error
+
+      # Tag-only release publishing.
+      - name: Package release zip
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $tag = "${env:GITHUB_REF}".Replace("refs/tags/", "")
+          $zip = "OpenA2DP-$tag-windows-x64.zip"
+          Compress-Archive -Path build\OpenA2DP.exe,build\OpenA2DP-cli.exe -DestinationPath $zip
+          "ZIP_NAME=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Create / update GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ZIP_NAME }}
+          generate_release_notes: true
