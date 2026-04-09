@@ -320,6 +320,7 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
     /* ── Device enumeration ─────────────────────────────────────── */
     oa2dp_ui_state_init(&g_ui);
     g_ui.advanced_mode = loaded_advanced;
+    g_ui.hwnd = hwnd;
 
     /* ── A2DP driver detection ──────────────────────────────────
      * Populates g_ui.drivers so the UI panel can render and control
@@ -414,6 +415,17 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
         }
 
         render_one_frame();
+
+        /* Acted-on outside the draw call — see panels.h comment.
+         * SetWindowPos here is safe: we're between frames, no
+         * ImGui state is half-built, and the resulting WM_SIZE
+         * will run our handler cleanly. */
+        if (g_ui.pending_window_reset) {
+            g_ui.pending_window_reset = 0;
+            SetWindowPos(hwnd, NULL,
+                         100, 100, 1440, 900,
+                         SWP_NOZORDER | SWP_NOACTIVATE);
+        }
     }
 
     oa2dp_log(OA2DP_LOG_INFO, "shutting down");

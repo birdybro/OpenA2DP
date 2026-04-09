@@ -247,6 +247,80 @@ static void draw_device_list(OA2DP_UIState *ui)
         }
     }
 
+    /* ── Reset settings button ──────────────────────────────────
+     * Visible in both modes — useful escape hatch when a profile
+     * gets borked.  Confirm modal prevents accidental clicks. */
+    igSeparator();
+    igDummy((ImVec2_c){0, 4});
+    {
+        ImVec2_c btn = { 240, 0 };
+        if (igButton("Reset All Settings to Defaults", btn))
+            igOpenPopup_Str("##confirm_reset_settings", 0);
+
+        ImVec2_c center;
+        ImGuiViewport *vp = igGetMainViewport();
+        center.x = vp->WorkPos.x + vp->WorkSize.x * 0.5f;
+        center.y = vp->WorkPos.y + vp->WorkSize.y * 0.5f;
+        igSetNextWindowPos(center, ImGuiCond_Appearing, (ImVec2_c){0.5f, 0.5f});
+        if (igBeginPopupModal("##confirm_reset_settings", NULL,
+                              ImGuiWindowFlags_AlwaysAutoResize |
+                              ImGuiWindowFlags_NoMove)) {
+            igTextWrapped(
+                "Reset every device profile to its built-in defaults? "
+                "This clears codec settings, watchdog opt-ins, and the "
+                "bitpool override flag for all paired devices, then "
+                "writes the defaults back to disk. The main window will "
+                "also resize to its default 1440x900.");
+            igDummy((ImVec2_c){0, 4});
+            igTextDisabled(
+                "Connection history is not affected.");
+            igDummy((ImVec2_c){0, 6});
+
+            ImVec2_c popbtn = { 120, 0 };
+            if (igButton("Reset", popbtn)) {
+                for (int i = 0; i < ui->devices.count; i++) {
+                    OA2DP_DeviceProfile *prof = &ui->devices.profiles[i];
+
+                    /* Preserve identity fields across the defaults
+                     * memset — defaults() zeros device_id and
+                     * display_name which we definitely want to keep. */
+                    char saved_id[64];
+                    char saved_name[128];
+                    snprintf(saved_id, sizeof(saved_id), "%s", prof->device_id);
+                    snprintf(saved_name, sizeof(saved_name), "%s", prof->display_name);
+
+                    oa2dp_profile_defaults(prof);
+
+                    snprintf(prof->device_id, sizeof(prof->device_id),
+                             "%s", saved_id);
+                    snprintf(prof->display_name, sizeof(prof->display_name),
+                             "%s", saved_name);
+
+                    char path[260];
+                    if (oa2dp_config_path_for_device(prof->device_id,
+                                                     path, sizeof(path)) == 0) {
+                        oa2dp_profile_save(path, prof);
+                    }
+                }
+                oa2dp_log(OA2DP_LOG_INFO,
+                          "settings: reset %d device profile(s) to defaults",
+                          ui->devices.count);
+
+                /* Defer the actual SetWindowPos to after the frame
+                 * ends — calling it from inside draw would synchronously
+                 * fire WM_SIZE → render_one_frame → ImGui re-entry. */
+                ui->pending_window_reset = 1;
+
+                igCloseCurrentPopup();
+            }
+            igSameLine(0, 8);
+            if (igButton("Cancel", popbtn)) {
+                igCloseCurrentPopup();
+            }
+            igEndPopup();
+        }
+    }
+
     igEndChild();
 }
 

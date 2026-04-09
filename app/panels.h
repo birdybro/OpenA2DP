@@ -28,6 +28,17 @@ typedef struct OA2DP_UIState {
      * exposes only Reconnect / Reset plus a minimal status readout —
      * the 99% workflow.  Persisted alongside window state. */
     int                 advanced_mode;
+
+    /* Main window HWND, stashed after CreateWindowW so panels can
+     * reference it (used by the deferred reset path below). */
+    void               *hwnd;
+
+    /* Set by the Reset Settings popup when the user wants the
+     * window resized back to its default rect.  Acted on by the
+     * main loop AFTER the current frame ends — calling SetWindowPos
+     * inside a draw re-enters our WM_SIZE → render_one_frame path
+     * and crashes ImGui mid-frame. */
+    int                 pending_window_reset;
 } OA2DP_UIState;
 
 /* Initialize UI state with sensible defaults. */
