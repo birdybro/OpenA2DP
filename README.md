@@ -1,5 +1,7 @@
 # OpenA2DP
 
+![OpenA2DP main window showing device list, A2DP stack control, codec settings, status panel, and log](screenshot.png)
+
 A minimal **Windows-only** Bluetooth A2DP control tool. Manage your Bluetooth stereo audio devices with per-device profiles, live connection status, codec configuration via the Alternative A2DP Driver, and diagnostic logging.
 
 [![Build](https://github.com/birdybro/OpenA2DP/actions/workflows/build.yml/badge.svg)](https://github.com/birdybro/OpenA2DP/actions/workflows/build.yml)
@@ -33,12 +35,6 @@ If you'd rather track the bleeding edge, every push to `main` produces a fresh b
 - **Activity counters** — Per-session running totals of reconnects, auto-heal triggers/recoveries/failures, HFP watchdog actions, and stack switches
 - **Diagnostic logging** — Color-coded severity levels, filterable, with auto-scroll, and a one-click "Copy to Clipboard" for issue reports
 - **Persistent settings** — Per-device profiles, window position/size, and connection history all auto-save to `%APPDATA%\OpenA2DP\` and reload on startup
-
-## Screenshot
-
-![OpenA2DP main window showing device list, A2DP stack control, codec settings, status panel, and log](screenshot.png)
-
-The main window with a Pixel Buds Pro 2 selected on the Alternative A2DP Driver stack: device list and A2DP service control on the left, codec settings (SBC at the device's safe max bitpool of 37, sample rates, stereo mode, allocation method, subbands, ABR), and the watchdog toggles in the middle, full status panel on the right showing the matched WASAPI endpoint, installed Bluetooth services, real codec parameters and live bitrate, recent connection history, and the diagnostic log at the bottom.
 
 ## Building
 
