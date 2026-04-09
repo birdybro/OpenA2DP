@@ -438,6 +438,40 @@ static void draw_status(OA2DP_UIState *ui)
             igTableNextColumn(); igText("%s", s->endpoint_name);
         }
 
+        /* Active codec / SBC details — populated by the Alternative
+         * A2DP Driver registry reader on the device probe.  Skipped
+         * when active_codec is UNKNOWN, which is what the Microsoft
+         * stack always shows because it doesn't expose negotiation
+         * results in user mode. */
+        if (s->active_codec != OA2DP_CODEC_UNKNOWN) {
+            igTableNextRow(0, 0);
+            igTableNextColumn(); igText("Active Codec");
+            igTableNextColumn(); igText("%s", codec_labels[s->active_codec]);
+        }
+        if (s->active_codec == OA2DP_CODEC_SBC) {
+            igTableNextRow(0, 0);
+            igTableNextColumn(); igText("Stereo Mode");
+            igTableNextColumn(); igText("%s", stereo_labels[s->stereo_mode]);
+
+            igTableNextRow(0, 0);
+            igTableNextColumn(); igText("Block Size");
+            igTableNextColumn(); igText("%s", block_labels[s->block_size]);
+
+            igTableNextRow(0, 0);
+            igTableNextColumn(); igText("Allocation");
+            igTableNextColumn(); igText("%s", alloc_labels[s->allocation_method]);
+
+            igTableNextRow(0, 0);
+            igTableNextColumn(); igText("Subbands");
+            igTableNextColumn(); igText("%s", subband_labels[s->subbands]);
+
+            if (s->bitpool > 0) {
+                igTableNextRow(0, 0);
+                igTableNextColumn(); igText("Max Bitpool");
+                igTableNextColumn(); igText("%d", s->bitpool);
+            }
+        }
+
         /* Battery (populated by background probe).  -1 = pending,
          * -2 = device doesn't expose battery to Windows, 0..100 = real. */
         if (s->battery_pct >= 0) {

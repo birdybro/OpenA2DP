@@ -25,6 +25,7 @@
 #include "oa2dp_device.h"
 #include "oa2dp_driver_control.h"
 #include "oa2dp_log.h"
+#include "oa2dp_registry_probe.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,6 +42,7 @@ static const wchar_t *KNOWN_CMDS[] = {
     L"--switch-stack",
     L"--start-service",
     L"--stop-service",
+    L"--probe-registry",
     L"--help",
     L"-h",
     L"/?",
@@ -105,9 +107,10 @@ static void print_usage(void)
         "  --disable-hfp <addr>        Disable Handsfree (HFP) on the device\n"
         "  --enable-a2dp <addr>        Enable A2DP AudioSink on the device\n"
         "\n"
-        "Inventory:\n"
+        "Inventory / diagnostics:\n"
         "  --list-devices              List all paired Bluetooth audio devices\n"
         "  --list-stacks               List installed A2DP services and their state\n"
+        "  --probe-registry            Dump A2DP-related registry config (read-only)\n"
         "\n"
         "Stack control (require Run as Administrator):\n"
         "  --switch-stack ms|alt       Switch active A2DP stack and reconnect devices\n"
@@ -237,6 +240,23 @@ int oa2dp_cli_run(int argc, wchar_t **argv)
         return cli_list_devices();
     if (wcscmp(cmd, L"--list-stacks") == 0)
         return cli_list_stacks();
+
+    if (wcscmp(cmd, L"--probe-registry") == 0) {
+        OA2DP_DriverList drivers;
+        memset(&drivers, 0, sizeof(drivers));
+        oa2dp_driver_scan(&drivers);
+        oa2dp_registry_probe_log(&drivers);
+        /* The probe writes to the in-memory log buffer; flush it to
+         * stdout so the user sees it. */
+        const OA2DP_LogBuffer *buf = oa2dp_log_get_buffer();
+        int start = (buf->count < OA2DP_LOG_RING_SIZE) ? 0 : buf->head;
+        for (int i = 0; i < buf->count; i++) {
+            int idx = (start + i) % OA2DP_LOG_RING_SIZE;
+            const OA2DP_LogEntry *e = &buf->entries[idx];
+            printf("%s\n", e->message);
+        }
+        return 0;
+    }
 
     /* ── Stack switch (one positional arg: target) ──────────────── */
 

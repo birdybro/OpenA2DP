@@ -31,6 +31,7 @@
 #include <devpkey.h>
 
 #include "oa2dp_device_probe.h"
+#include "oa2dp_altdriver_config.h"
 #include "oa2dp_log.h"
 
 #include <stdio.h>
@@ -204,9 +205,17 @@ static DWORD WINAPI probe_thread(LPVOID param)
         else
             stat->battery_pct = -2;  /* sentinel: probed, not available */
 
+        /* If Alternative A2DP Driver is installed, read its
+         * Devices\Current\<addr> registry subkey to get the real
+         * negotiated codec / SBC parameters.  No-op (returns -1) on
+         * machines without the driver, or for devices the driver
+         * doesn't know about. */
+        oa2dp_altdriver_read_current(prof->device_id, stat);
+
         oa2dp_log(OA2DP_LOG_DEBUG,
-                  "device probe: %s -> sink=%d hfp=%d batt=%d",
-                  prof->device_id, audio_sink, handsfree, batt);
+                  "device probe: %s -> sink=%d hfp=%d batt=%d codec=%d",
+                  prof->device_id, audio_sink, handsfree, batt,
+                  (int)stat->active_codec);
     }
 
     free(p);
