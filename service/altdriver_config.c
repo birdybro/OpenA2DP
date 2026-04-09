@@ -118,6 +118,7 @@ int oa2dp_altdriver_read_current(const char *device_id,
     DWORD sbc_blocklen = 0, sbc_max_bp = 0;
     DWORD aac_chmode = 0, aac_freq = 0;
     DWORD live_bitrate = 0;
+    DWORD delay_val = 0;
 
     read_dword(hcur, L"Codec",                &codec);
     read_dword(hcur, L"SbcChannelMode",       &sbc_chmode);
@@ -129,8 +130,12 @@ int oa2dp_altdriver_read_current(const char *device_id,
     read_dword(hcur, L"AacChannelMode",       &aac_chmode);
     read_dword(hcur, L"AacSamplingFrequency", &aac_freq);
     read_dword(hcur, L"Bitrate",              &live_bitrate);
+    read_dword(hcur, L"Delay",                &delay_val);
 
     RegCloseKey(hcur);
+
+    if (delay_val > 0)
+        status->latency_tenths_ms = (int)delay_val;
 
     /* Decode codec.  bit 0 = SBC, bit 1 = AAC. */
     int codec_bit = lowest_set_bit(codec);
@@ -198,20 +203,43 @@ int oa2dp_altdriver_read_current(const char *device_id,
         status->codec_bitrate_kbps = (int)(live_bitrate / 1000);
     }
 
-    /* Always read Capability to get the device's reported max
-     * SBC bitpool (the safe ceiling) and to fall back for AAC
+    /* Always read the full Capability subkey — the device's max
+     * SBC bitpool (safe ceiling), full supported codec/rate
+     * bitfields for the capability panel, and fallback AAC
      * bitrate if Current.Bitrate was zero. */
     {
         HKEY hcap = NULL;
         if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, cap_path, 0, KEY_READ, &hcap)
             == ERROR_SUCCESS) {
-            DWORD cap_max_bp = 0;
-            DWORD cap_aac_bitrate = 0;
-            read_dword(hcap, L"SbcMaximumBitpool", &cap_max_bp);
-            read_dword(hcap, L"AacBitrate",        &cap_aac_bitrate);
+            DWORD cap_codecs = 0;
+            DWORD cap_sbc_chmode = 0, cap_sbc_freq = 0;
+            DWORD cap_sbc_min_bp = 0, cap_sbc_max_bp = 0;
+            DWORD cap_aac_chmode = 0, cap_aac_freq = 0;
+            DWORD cap_aac_bitrate = 0, cap_aac_peak = 0;
+
+            read_dword(hcap, L"Codec",                &cap_codecs);
+            read_dword(hcap, L"SbcChannelMode",       &cap_sbc_chmode);
+            read_dword(hcap, L"SbcSamplingFrequency", &cap_sbc_freq);
+            read_dword(hcap, L"SbcMinimumBitpool",    &cap_sbc_min_bp);
+            read_dword(hcap, L"SbcMaximumBitpool",    &cap_sbc_max_bp);
+            read_dword(hcap, L"AacChannelMode",       &cap_aac_chmode);
+            read_dword(hcap, L"AacSamplingFrequency", &cap_aac_freq);
+            read_dword(hcap, L"AacBitrate",           &cap_aac_bitrate);
+            read_dword(hcap, L"AacPeakBitrate",       &cap_aac_peak);
             RegCloseKey(hcap);
-            if (cap_max_bp > 0)
-                status->sbc_max_bitpool_capability = (int)cap_max_bp;
+
+            status->cap_codecs              = (int)cap_codecs;
+            status->cap_sbc_chmode          = (int)cap_sbc_chmode;
+            status->cap_sbc_freq            = (int)cap_sbc_freq;
+            status->cap_sbc_min_bitpool     = (int)cap_sbc_min_bp;
+            status->cap_aac_chmode          = (int)cap_aac_chmode;
+            status->cap_aac_freq            = (int)cap_aac_freq;
+            if (cap_aac_bitrate > 0)
+                status->cap_aac_bitrate_kbps = (int)(cap_aac_bitrate / 1000);
+            if (cap_aac_peak > 0)
+                status->cap_aac_peak_bitrate_kbps = (int)(cap_aac_peak / 1000);
+            if (cap_sbc_max_bp > 0)
+                status->sbc_max_bitpool_capability = (int)cap_sbc_max_bp;
             if (live_bitrate == 0 && cap_aac_bitrate > 0 &&
                 status->active_codec == OA2DP_CODEC_AAC) {
                 status->codec_bitrate_kbps = (int)(cap_aac_bitrate / 1000);

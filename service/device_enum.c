@@ -258,6 +258,10 @@ int oa2dp_device_refresh_status(OA2DP_DeviceList *list)
                           prof->display_name, state_label);
                 oa2dp_history_append(prof->device_id, state_label);
 
+                if (stat->connection == OA2DP_CONN_DISCONNECTED) {
+                    stat->endpoint_miss_count = 0;
+                }
+
                 if (stat->connection == OA2DP_CONN_CONNECTED) {
                     /* See note in oa2dp_device_scan: codec / SBC fields
                      * are not knowable from user-mode, only WASAPI mix
@@ -267,8 +271,6 @@ int oa2dp_device_refresh_status(OA2DP_DeviceList *list)
                     stat->bit_depth   = 0;
                     stat->channels    = 0;
                     stat->estimated_bitrate_kbps = 0;
-                    (void)oa2dp_audio_status_query(prof->device_id,
-                                                   prof->display_name, stat);
 
                     /* If the user opted into auto-heal for this device,
                      * kick off a check on a background thread.  The worker
@@ -277,6 +279,22 @@ int oa2dp_device_refresh_status(OA2DP_DeviceList *list)
                     if (prof->auto_heal_enabled)
                         oa2dp_auto_heal_trigger(prof->device_id,
                                                 prof->display_name);
+                }
+            }
+
+            /* Re-query the audio endpoint every refresh tick (not just
+             * on transitions) so we can debounce the "connected but
+             * silent" warning across multiple polls.  Transient races
+             * during codec switches resolve within one or two ticks
+             * and shouldn't trigger the warning. */
+            if (stat->connection == OA2DP_CONN_CONNECTED) {
+                int rc = oa2dp_audio_status_query(prof->device_id,
+                                                  prof->display_name, stat);
+                if (rc == 0) {
+                    stat->endpoint_miss_count = 0;
+                } else {
+                    if (stat->endpoint_miss_count < 1000000)
+                        stat->endpoint_miss_count++;
                 }
             }
         }

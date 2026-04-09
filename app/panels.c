@@ -75,21 +75,25 @@ static void draw_drivers_section(OA2DP_UIState *ui)
     int elevated = oa2dp_process_is_elevated();
     int switching = oa2dp_stack_switch_busy();
 
-    /* One-click stack switcher.  The worker stops the wrong-stack
-     * services, starts the right ones, and reconnects every connected
-     * device against the new stack — all on a background thread. */
+    /* One-click stack switcher.  Buttons just request a confirm
+     * dialog; the actual switch fires from the popup body so the
+     * user has to explicitly say yes — switching kicks audio out
+     * for ~30 seconds, easy to mis-click. */
     {
         bool can_switch = elevated && !switching;
         if (!can_switch) igBeginDisabled(true);
 
         ImVec2_c btn = { 130, 0 };
-        if (igButton("Use Microsoft", btn))
-            oa2dp_stack_switch_async(OA2DP_STACK_MICROSOFT,
-                                     &ui->drivers, &ui->devices);
+        static int pending_target = -1; /* -1 = none, else OA2DP_StackTarget */
+        if (igButton("Use Microsoft", btn)) {
+            pending_target = OA2DP_STACK_MICROSOFT;
+            igOpenPopup_Str("##confirm_stack_switch", 0);
+        }
         igSameLine(0, 4);
-        if (igButton("Use Alternative", btn))
-            oa2dp_stack_switch_async(OA2DP_STACK_ALTERNATIVE,
-                                     &ui->drivers, &ui->devices);
+        if (igButton("Use Alternative", btn)) {
+            pending_target = OA2DP_STACK_ALTERNATIVE;
+            igOpenPopup_Str("##confirm_stack_switch", 0);
+        }
 
         if (!can_switch) igEndDisabled();
 
@@ -97,6 +101,43 @@ static void draw_drivers_section(OA2DP_UIState *ui)
             igSameLine(0, 8);
             ImVec4_c col = { 1.0f, 0.8f, 0.0f, 1.0f };
             igTextColored(col, "switching...");
+        }
+
+        /* Modal confirmation popup. */
+        ImVec2_c center;
+        ImGuiViewport *vp = igGetMainViewport();
+        center.x = vp->WorkPos.x + vp->WorkSize.x * 0.5f;
+        center.y = vp->WorkPos.y + vp->WorkSize.y * 0.5f;
+        igSetNextWindowPos(center, ImGuiCond_Appearing, (ImVec2_c){0.5f, 0.5f});
+        if (igBeginPopupModal("##confirm_stack_switch", NULL,
+                              ImGuiWindowFlags_AlwaysAutoResize |
+                              ImGuiWindowFlags_NoMove)) {
+            const char *target_name =
+                (pending_target == OA2DP_STACK_MICROSOFT)
+                    ? "Microsoft (BthA2dp)" : "Alternative A2DP Driver";
+            igText("Switch active A2DP stack to:");
+            igText("    %s", target_name);
+            igDummy((ImVec2_c){0, 6});
+            igTextWrapped(
+                "This will stop the currently running A2DP services, "
+                "start the target stack's services, and reconnect every "
+                "connected Bluetooth audio device. Audio will drop out "
+                "for roughly 15-30 seconds.");
+            igDummy((ImVec2_c){0, 6});
+
+            ImVec2_c popbtn = { 120, 0 };
+            if (igButton("Switch", popbtn)) {
+                oa2dp_stack_switch_async((OA2DP_StackTarget)pending_target,
+                                         &ui->drivers, &ui->devices);
+                pending_target = -1;
+                igCloseCurrentPopup();
+            }
+            igSameLine(0, 8);
+            if (igButton("Cancel", popbtn)) {
+                pending_target = -1;
+                igCloseCurrentPopup();
+            }
+            igEndPopup();
         }
     }
 
@@ -207,6 +248,19 @@ static void draw_device_list(OA2DP_UIState *ui)
     igEndChild();
 }
 
+/* Show a hover-help tooltip on the previous widget.  Wraps text
+ * sensibly so longer explanations don't go off the right edge. */
+static void hover_help(const char *text)
+{
+    if (igIsItemHovered(ImGuiHoveredFlags_None)) {
+        igBeginTooltip();
+        igPushTextWrapPos(360.0f);
+        igTextUnformatted(text, NULL);
+        igPopTextWrapPos();
+        igEndTooltip();
+    }
+}
+
 /* Copy the codec-relevant snap_* fields from the registry-snapshot
  * back into the profile, reverting any unsaved edits.  Used by the
  * Discard button. */
@@ -278,6 +332,12 @@ static void draw_settings(OA2DP_UIState *ui)
         if (igCombo_Str_arr("Codec", &idx, choices, 2, -1))
             p->preferred_codec =
                 (idx == 1) ? OA2DP_CODEC_AAC : OA2DP_CODEC_SBC;
+        hover_help(
+            "SBC is the universal A2DP codec — every Bluetooth audio device "
+            "supports it. AAC has noticeably better quality at the same bitrate "
+            "and is supported by Apple devices, recent Android devices, Pixel "
+            "Buds, and many wireless earbuds. Picking AAC on a device that "
+            "doesn't support it just falls back to SBC.");
     }
 
     /* Codec-specific UI */
@@ -300,21 +360,38 @@ static void draw_settings(OA2DP_UIState *ui)
         igSetNextItemWidth(150);
         if (igCombo_Str_arr("Stereo Mode", &sm, stereo_labels, OA2DP_STEREO_COUNT, -1))
             p->stereo_mode = (OA2DP_StereoMode)sm;
+        hover_help(
+            "Joint Stereo gives the best compression for typical music by "
+            "sharing some bits between left and right channels. Stereo and "
+            "Dual Channel encode each channel separately — slightly bigger "
+            "frames, no quality difference for most material.");
 
         int bs = (int)p->block_size;
         igSetNextItemWidth(150);
         if (igCombo_Str_arr("Block Size", &bs, block_labels, OA2DP_BLOCK_COUNT, -1))
             p->block_size = (OA2DP_BlockSize)bs;
+        hover_help(
+            "Number of samples per SBC frame. Larger blocks = better "
+            "compression efficiency but slightly higher encoding latency. "
+            "16 is the typical high-quality choice.");
 
         int am = (int)p->allocation_method;
         igSetNextItemWidth(150);
         if (igCombo_Str_arr("Allocation", &am, alloc_labels, OA2DP_ALLOC_COUNT, -1))
             p->allocation_method = (OA2DP_AllocMethod)am;
+        hover_help(
+            "How SBC distributes bits across subbands. Loudness is preferred "
+            "for music (perceptual model). SNR optimises raw signal-to-noise "
+            "ratio and is rarely chosen.");
 
         int sb = (int)p->subbands;
         igSetNextItemWidth(150);
         if (igCombo_Str_arr("Subbands", &sb, subband_labels, OA2DP_SUBBANDS_COUNT, -1))
             p->subbands = (OA2DP_Subbands)sb;
+        hover_help(
+            "Number of frequency subbands SBC splits the signal into. "
+            "8 gives noticeably better quality than 4 for the same bitrate. "
+            "Almost always choose 8.");
 
         /* SBC bitpool with device-cap safety guard.  Default slider
          * max = device's reported Capability.SbcMaximumBitpool.  The
@@ -333,6 +410,11 @@ static void draw_settings(OA2DP_UIState *ui)
 
         igSetNextItemWidth(200);
         igSliderInt("Max Bitpool", &p->bitpool, 2, slider_max, "%d", 0);
+        hover_help(
+            "SBC's main quality knob. Higher = more bits per frame = better "
+            "audio at the cost of more Bluetooth bandwidth. The slider's max "
+            "is your device's reported maximum (the safe ceiling). Going "
+            "higher requires the override checkbox below.");
 
         /* Override toggle — gated on elevation. */
         {
@@ -342,6 +424,12 @@ static void draw_settings(OA2DP_UIState *ui)
             igCheckbox("Override device max bitpool", &ovr);
             p->sbc_override_device_max = ovr;
             if (!can_toggle) igEndDisabled();
+            hover_help(
+                "DANGEROUS — disables the device-cap safety guard. Setting "
+                "bitpool above the device's reported maximum can produce "
+                "broken/garbled audio or, on some cheaper Bluetooth chips, "
+                "physically damage them. Only enable if you understand the "
+                "risk. Admin-only.");
 
             if (dev_cap > 0) {
                 igSameLine(0, 8);
@@ -379,9 +467,22 @@ static void draw_settings(OA2DP_UIState *ui)
             p->aac_allow_48khz   = r48;
         }
         igSetNextItemWidth(200);
-        /* 0 = "device default" sentinel; otherwise 64..320 kbps. */
+        /* 0 = "device default" sentinel; otherwise 64 to the device's
+         * Capability.AacBitrate ceiling (or 320 if we don't know it). */
         if (p->aac_bitrate_kbps == 0) p->aac_bitrate_kbps = 256;
-        igSliderInt("AAC Bitrate (kbps)", &p->aac_bitrate_kbps, 64, 320, "%d", 0);
+        int aac_slider_max = (s->cap_aac_bitrate_kbps > 0)
+                                 ? s->cap_aac_bitrate_kbps : 320;
+        if (aac_slider_max < 64) aac_slider_max = 320;
+        if (p->aac_bitrate_kbps > aac_slider_max) p->aac_bitrate_kbps = aac_slider_max;
+        igSliderInt("AAC Bitrate (kbps)", &p->aac_bitrate_kbps, 64, aac_slider_max, "%d", 0);
+        hover_help(
+            "Target AAC encode rate. Higher = better quality. The slider "
+            "is capped to whatever your device claims it supports — pushing "
+            "higher would just be ignored. 256 is the typical sweet spot "
+            "for headphones.");
+        if (s->cap_aac_bitrate_kbps > 0) {
+            igTextDisabled("(device max: %d kbps)", s->cap_aac_bitrate_kbps);
+        }
     }
 
     /* ABR Enable applies to both codecs. */
@@ -389,6 +490,10 @@ static void draw_settings(OA2DP_UIState *ui)
         bool abr = (bool)p->abr_enable;
         igCheckbox("Adaptive Bit Rate (ABR)", &abr);
         p->abr_enable = abr;
+        hover_help(
+            "Adaptive Bit Rate — let the driver lower the codec bitrate "
+            "automatically when the Bluetooth link gets congested (e.g. "
+            "interference, distance). Recommended on for most use cases.");
     }
 
     if (!codec_editable) igEndDisabled();
@@ -528,10 +633,21 @@ static void draw_settings(OA2DP_UIState *ui)
         bool ah = (bool)p->auto_heal_enabled;
         if (igCheckbox("Auto-Heal: reconnect on connect-but-no-audio", &ah))
             p->auto_heal_enabled = ah;
+        hover_help(
+            "When this device connects, wait a moment then check whether "
+            "Windows actually created a WASAPI audio endpoint. If not (the "
+            "Windows 11 connect-but-silent bug), automatically cycle "
+            "AudioSink to recover. Capped at 3 attempts. Fires a tray "
+            "notification on success or failure.");
 
         bool hw = (bool)p->hfp_watchdog_enabled;
         if (igCheckbox("HFP Watchdog: keep Handsfree disabled", &hw))
             p->hfp_watchdog_enabled = hw;
+        hover_help(
+            "Periodically re-disable the Handsfree (HFP) Bluetooth service "
+            "on this device. Stops Windows from falling back to narrowband "
+            "mono SCO when something accidentally re-enables HFP. "
+            "Recommended for headphones-only use.");
     }
 }
 
@@ -695,13 +811,71 @@ static void draw_status(OA2DP_UIState *ui)
             igTableNextColumn(); igText("%d kbps", s->codec_bitrate_kbps);
         }
 
+        /* Negotiated audio latency from Alt A2DP Driver Current.Delay
+         * (1/10 ms units, so 2800 = 280 ms). */
+        if (s->latency_tenths_ms > 0) {
+            igTableNextRow(0, 0);
+            igTableNextColumn(); igText("Audio Latency");
+            igTableNextColumn(); igText("%d ms", s->latency_tenths_ms / 10);
+        }
+
         igEndTable();
     }
 
-    /* If connected but WASAPI never gave us anything, say so explicitly
-     * rather than showing an empty panel.  This is the symptom that
-     * auto-heal looks for. */
-    if (s->connection == OA2DP_CONN_CONNECTED && s->sample_rate == 0) {
+    /* ── Device Capabilities (from Alt A2DP Driver Capability\<addr>) */
+    if (s->cap_codecs != 0) {
+        igSeparator();
+        igText("Device Capabilities");
+
+        char buf[128];
+        int pos = 0;
+        if (s->cap_codecs & 0x01) pos += snprintf(buf + pos, sizeof(buf) - pos, "SBC ");
+        if (s->cap_codecs & 0x02) pos += snprintf(buf + pos, sizeof(buf) - pos, "AAC ");
+        if (s->cap_codecs & 0x04) pos += snprintf(buf + pos, sizeof(buf) - pos, "LDAC ");
+        if (s->cap_codecs & 0x08) pos += snprintf(buf + pos, sizeof(buf) - pos, "aptX ");
+        if (s->cap_codecs & 0x10) pos += snprintf(buf + pos, sizeof(buf) - pos, "aptX-HD ");
+        if (s->cap_codecs & 0x20) pos += snprintf(buf + pos, sizeof(buf) - pos, "aptX-LL ");
+        igTextDisabled("Codecs:    %s", buf[0] ? buf : "(none)");
+
+        if (s->cap_sbc_freq != 0) {
+            pos = 0; buf[0] = '\0';
+            if (s->cap_sbc_freq & 0x01) pos += snprintf(buf + pos, sizeof(buf) - pos, "48 ");
+            if (s->cap_sbc_freq & 0x02) pos += snprintf(buf + pos, sizeof(buf) - pos, "44.1 ");
+            if (s->cap_sbc_freq & 0x04) pos += snprintf(buf + pos, sizeof(buf) - pos, "32 ");
+            if (s->cap_sbc_freq & 0x08) pos += snprintf(buf + pos, sizeof(buf) - pos, "16 ");
+            igTextDisabled("SBC rates: %skHz", buf);
+        }
+        if (s->sbc_max_bitpool_capability > 0) {
+            int min_bp = s->cap_sbc_min_bitpool > 0 ? s->cap_sbc_min_bitpool : 2;
+            igTextDisabled("SBC bitpool: %d-%d", min_bp, s->sbc_max_bitpool_capability);
+        }
+        if (s->cap_aac_freq != 0) {
+            /* AAC freq bits — only label the rates the device actually supports. */
+            pos = 0; buf[0] = '\0';
+            static const struct { int bit; const char *label; } aac_rates[] = {
+                {0, "96 "}, {1, "88.2 "}, {2, "64 "}, {3, "48 "}, {4, "44.1 "},
+                {5, "32 "}, {6, "24 "}, {7, "22.05 "}, {8, "16 "},
+                {9, "12 "}, {10, "11.025 "}, {11, "8 "}
+            };
+            for (size_t k = 0; k < sizeof(aac_rates) / sizeof(aac_rates[0]); k++) {
+                if (s->cap_aac_freq & (1u << aac_rates[k].bit))
+                    pos += snprintf(buf + pos, sizeof(buf) - pos, "%s", aac_rates[k].label);
+            }
+            igTextDisabled("AAC rates: %skHz", buf);
+        }
+        if (s->cap_aac_bitrate_kbps > 0) {
+            if (s->cap_aac_peak_bitrate_kbps > 0)
+                igTextDisabled("AAC bitrate: max %d kbps (peak %d)",
+                               s->cap_aac_bitrate_kbps, s->cap_aac_peak_bitrate_kbps);
+            else
+                igTextDisabled("AAC bitrate: max %d kbps", s->cap_aac_bitrate_kbps);
+        }
+    }
+
+    /* If connected but WASAPI never gave us anything for several
+     * consecutive polls, say so.  Debounced (>=2 misses) so transient
+     * races during codec switches don't false-trigger the warning. */
+    if (s->connection == OA2DP_CONN_CONNECTED && s->endpoint_miss_count >= 2) {
         igSeparator();
         ImVec4_c warn = { 1.0f, 0.8f, 0.0f, 1.0f };
         igTextColored(warn, "Connected but no audio endpoint visible to WASAPI.");
@@ -911,6 +1085,30 @@ void oa2dp_panels_draw(OA2DP_UIState *ui)
             ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
             ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
             ImGuiWindowFlags_NoBringToFrontOnFocus);
+
+    /* ── Top header: active stack indicator ──────────────────────
+     * Single line at the very top so the user always knows which
+     * A2DP stack is currently routing audio without having to
+     * scroll the status panel. */
+    {
+        char stack_label[64];
+        oa2dp_driver_active_stack_label(&ui->drivers,
+                                        stack_label, sizeof(stack_label));
+        igText("Active A2DP stack:");
+        igSameLine(0, 6);
+        ImVec4_c col;
+        if (strstr(stack_label, "Microsoft")) {
+            col.x = 0.4f; col.y = 0.7f; col.z = 1.0f; col.w = 1.0f;  /* blue */
+        } else if (strstr(stack_label, "Alternative")) {
+            col.x = 0.3f; col.y = 0.9f; col.z = 0.5f; col.w = 1.0f;  /* green */
+        } else if (strstr(stack_label, "Multiple")) {
+            col.x = 1.0f; col.y = 0.8f; col.z = 0.0f; col.w = 1.0f;  /* yellow */
+        } else {
+            col.x = 1.0f; col.y = 0.4f; col.z = 0.4f; col.w = 1.0f;  /* red */
+        }
+        igTextColored(col, "%s", stack_label);
+        igSeparator();
+    }
 
     /* ── Left: device list ──────────────────────────────────────── */
     draw_device_list(ui);

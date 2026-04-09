@@ -183,6 +183,31 @@ typedef struct OA2DP_DeviceStatus {
      * (which requires admin).  0 = not yet probed / unknown. */
     int sbc_max_bitpool_capability;
 
+    /* The full Capability\<addr> snapshot — what the device claims it
+     * supports.  Populated by oa2dp_altdriver_read_current alongside
+     * Current.  All fields are 0 until the probe runs (or always 0
+     * if the device isn't in Alt A2DP Driver's database). */
+    int cap_codecs;              /* Codec bitfield: bit 0=SBC, 1=AAC, ... */
+    int cap_sbc_chmode;          /* bitfield, see header schema */
+    int cap_sbc_freq;            /* bitfield */
+    int cap_sbc_min_bitpool;     /* device's minimum bitpool */
+    int cap_aac_chmode;          /* bitfield */
+    int cap_aac_freq;            /* bitfield */
+    int cap_aac_bitrate_kbps;    /* device's max sustainable AAC bitrate */
+    int cap_aac_peak_bitrate_kbps; /* device's peak AAC bitrate */
+
+    /* Negotiated audio latency from Current\<addr>\Delay, in 1/10 ms
+     * units (so 2800 = 280 ms).  0 = not yet probed / unknown. */
+    int latency_tenths_ms;
+
+    /* Number of consecutive status refreshes where this device was
+     * connected but oa2dp_audio_status_query failed to find an
+     * endpoint.  Reset to 0 on success.  The status panel only
+     * shows the "connected but silent" warning when this counter
+     * passes a small threshold so transient races during codec
+     * switches don't false-trigger the warning. */
+    int endpoint_miss_count;
+
     /* Snapshot of the codec-relevant profile fields the LAST time we
      * read or wrote Alternative A2DP Driver's Devices\Next\<addr>
      * subkey.  Used by the settings panel to detect "unsaved
