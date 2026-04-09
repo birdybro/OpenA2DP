@@ -93,6 +93,7 @@ typedef struct OA2DP_DeviceProfile {
     int override_bitpool;
     int bitpool;
     int auto_reduce_bitpool;
+    int auto_heal_enabled;   /* if set, auto-reconnect when device connects but no audio endpoint appears */
 } OA2DP_DeviceProfile;
 
 /* ── Runtime device status (read-only, from system) ─────────────────── */

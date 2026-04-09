@@ -190,6 +190,9 @@ int oa2dp_profile_save(const char *path, const OA2DP_DeviceProfile *p)
     fprintf(f, "bitpool = %d\n",             p->bitpool);
     fprintf(f, "auto_reduce_bitpool = %d\n", p->auto_reduce_bitpool);
 
+    fprintf(f, "\n[auto_heal]\n");
+    fprintf(f, "auto_heal_enabled = %d\n",   p->auto_heal_enabled);
+
     fclose(f);
     oa2dp_log(OA2DP_LOG_INFO, "config: saved profile for '%s' to '%s'",
               p->display_name, path);
@@ -255,6 +258,8 @@ int oa2dp_profile_load(const char *path, OA2DP_DeviceProfile *p)
             p->bitpool = atoi(val);
         else if (strcmp(key, "auto_reduce_bitpool") == 0)
             p->auto_reduce_bitpool = atoi(val);
+        else if (strcmp(key, "auto_heal_enabled") == 0)
+            p->auto_heal_enabled = atoi(val);
     }
 
     fclose(f);

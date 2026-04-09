@@ -17,6 +17,7 @@
 #include "oa2dp_device.h"
 #include "oa2dp_config.h"
 #include "oa2dp_audio_status.h"
+#include "oa2dp_auto_heal.h"
 #include "oa2dp_log.h"
 
 #include <stdio.h>
@@ -240,6 +241,13 @@ int oa2dp_device_refresh_status(OA2DP_DeviceList *list)
                         stat->channels     = 2;
                         stat->estimated_bitrate_kbps = 328;
                     }
+
+                    /* If the user opted into auto-heal for this device,
+                     * kick off a check on a background thread.  The worker
+                     * waits a settle period and only acts if WASAPI still
+                     * has no endpoint by then. */
+                    if (prof->auto_heal_enabled)
+                        oa2dp_auto_heal_trigger(prof->device_id);
                 }
             }
         }

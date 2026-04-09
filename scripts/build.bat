@@ -44,6 +44,7 @@ set C_SRCS=%C_SRCS% "%SRC_CORE%\validation.c"
 set C_SRCS=%C_SRCS% "%SRC_CORE%\log.c"
 set C_SRCS=%C_SRCS% "%SRC_SVC%\device_enum.c"
 set C_SRCS=%C_SRCS% "%SRC_SVC%\actions.c"
+set C_SRCS=%C_SRCS% "%SRC_SVC%\auto_heal.c"
 set C_SRCS=%C_SRCS% "%SRC_APP%\panels.c"
 set C_SRCS=%C_SRCS% "%SRC_APP%\main.c"
 

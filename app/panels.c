@@ -228,6 +228,16 @@ static void draw_settings(OA2DP_UIState *ui)
 
         if (busy) igEndDisabled();
     }
+
+    igSeparator();
+
+    /* Auto-heal toggle */
+    {
+        igText("Auto-Heal");
+        bool ah = (bool)p->auto_heal_enabled;
+        if (igCheckbox("Reconnect on connect-but-no-audio", &ah))
+            p->auto_heal_enabled = ah;
+    }
 }
 
 /* ── Status panel ───────────────────────────────────────────────────── */

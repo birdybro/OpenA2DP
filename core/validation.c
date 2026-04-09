@@ -40,6 +40,7 @@ void oa2dp_profile_defaults(OA2DP_DeviceProfile *p)
     p->override_bitpool     = 0;
     p->bitpool              = 53;   /* common high-quality SBC default */
     p->auto_reduce_bitpool  = 1;
+    p->auto_heal_enabled    = 0;    /* opt-in: user enables per device once verified */
 }
 
 void oa2dp_profile_validate(OA2DP_DeviceProfile *p)
@@ -64,6 +65,7 @@ void oa2dp_profile_validate(OA2DP_DeviceProfile *p)
     p->allow_48khz         = clamp_bool(p->allow_48khz);
     p->override_bitpool    = clamp_bool(p->override_bitpool);
     p->auto_reduce_bitpool = clamp_bool(p->auto_reduce_bitpool);
+    p->auto_heal_enabled   = clamp_bool(p->auto_heal_enabled);
 
     /* At least one channel mode must be allowed. */
     if (!p->allow_mono && !p->allow_stereo)
