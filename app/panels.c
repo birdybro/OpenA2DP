@@ -248,6 +248,23 @@ static void draw_device_list(OA2DP_UIState *ui)
     igEndChild();
 }
 
+/* Push an amber FrameBg style for the next widget so the user can
+ * see which codec field they've edited.  Pop after the widget. */
+static void push_dirty_highlight(int dirty)
+{
+    if (!dirty) return;
+    ImVec4_c bg  = { 0.45f, 0.35f, 0.0f, 1.0f };
+    ImVec4_c bgh = { 0.55f, 0.42f, 0.0f, 1.0f };
+    ImVec4_c bga = { 0.65f, 0.50f, 0.0f, 1.0f };
+    igPushStyleColor_Vec4(ImGuiCol_FrameBg,        bg);
+    igPushStyleColor_Vec4(ImGuiCol_FrameBgHovered, bgh);
+    igPushStyleColor_Vec4(ImGuiCol_FrameBgActive,  bga);
+}
+static void pop_dirty_highlight(int dirty)
+{
+    if (dirty) igPopStyleColor(3);
+}
+
 /* Show a hover-help tooltip on the previous widget.  Wraps text
  * sensibly so longer explanations don't go off the right edge. */
 static void hover_help(const char *text)
@@ -326,12 +343,15 @@ static void draw_settings(OA2DP_UIState *ui)
      * the underlying enum has as index 0 for "we don't know what's
      * negotiated yet". */
     {
+        int dirty = (p->preferred_codec != s->snap_preferred_codec);
+        push_dirty_highlight(dirty);
         static const char *choices[] = { "SBC", "AAC" };
         int idx = (p->preferred_codec == OA2DP_CODEC_AAC) ? 1 : 0;
         igSetNextItemWidth(150);
         if (igCombo_Str_arr("Codec", &idx, choices, 2, -1))
             p->preferred_codec =
                 (idx == 1) ? OA2DP_CODEC_AAC : OA2DP_CODEC_SBC;
+        pop_dirty_highlight(dirty);
         hover_help(
             "SBC is the universal A2DP codec — every Bluetooth audio device "
             "supports it. AAC has noticeably better quality at the same bitrate "
@@ -348,46 +368,78 @@ static void draw_settings(OA2DP_UIState *ui)
             bool r32 = (bool)p->allow_32khz;
             bool r44 = (bool)p->allow_44_1khz;
             bool r48 = (bool)p->allow_48khz;
-            igCheckbox("16 kHz", &r16);   igSameLine(0, 10);
-            igCheckbox("32 kHz", &r32);   igSameLine(0, 10);
-            igCheckbox("44.1 kHz", &r44); igSameLine(0, 10);
+            int d16 = (p->allow_16khz   != s->snap_allow_16khz);
+            int d32 = (p->allow_32khz   != s->snap_allow_32khz);
+            int d44 = (p->allow_44_1khz != s->snap_allow_44_1khz);
+            int d48 = (p->allow_48khz   != s->snap_allow_48khz);
+
+            push_dirty_highlight(d16);
+            igCheckbox("16 kHz", &r16);
+            pop_dirty_highlight(d16);
+            igSameLine(0, 10);
+
+            push_dirty_highlight(d32);
+            igCheckbox("32 kHz", &r32);
+            pop_dirty_highlight(d32);
+            igSameLine(0, 10);
+
+            push_dirty_highlight(d44);
+            igCheckbox("44.1 kHz", &r44);
+            pop_dirty_highlight(d44);
+            igSameLine(0, 10);
+
+            push_dirty_highlight(d48);
             igCheckbox("48 kHz", &r48);
+            pop_dirty_highlight(d48);
+
             p->allow_16khz = r16; p->allow_32khz = r32;
             p->allow_44_1khz = r44; p->allow_48khz = r48;
         }
 
+        int dirty_sm = (p->stereo_mode != s->snap_stereo_mode);
+        push_dirty_highlight(dirty_sm);
         int sm = (int)p->stereo_mode;
         igSetNextItemWidth(150);
         if (igCombo_Str_arr("Stereo Mode", &sm, stereo_labels, OA2DP_STEREO_COUNT, -1))
             p->stereo_mode = (OA2DP_StereoMode)sm;
+        pop_dirty_highlight(dirty_sm);
         hover_help(
             "Joint Stereo gives the best compression for typical music by "
             "sharing some bits between left and right channels. Stereo and "
             "Dual Channel encode each channel separately — slightly bigger "
             "frames, no quality difference for most material.");
 
+        int dirty_bs = (p->block_size != s->snap_block_size);
+        push_dirty_highlight(dirty_bs);
         int bs = (int)p->block_size;
         igSetNextItemWidth(150);
         if (igCombo_Str_arr("Block Size", &bs, block_labels, OA2DP_BLOCK_COUNT, -1))
             p->block_size = (OA2DP_BlockSize)bs;
+        pop_dirty_highlight(dirty_bs);
         hover_help(
             "Number of samples per SBC frame. Larger blocks = better "
             "compression efficiency but slightly higher encoding latency. "
             "16 is the typical high-quality choice.");
 
+        int dirty_am = (p->allocation_method != s->snap_allocation_method);
+        push_dirty_highlight(dirty_am);
         int am = (int)p->allocation_method;
         igSetNextItemWidth(150);
         if (igCombo_Str_arr("Allocation", &am, alloc_labels, OA2DP_ALLOC_COUNT, -1))
             p->allocation_method = (OA2DP_AllocMethod)am;
+        pop_dirty_highlight(dirty_am);
         hover_help(
             "How SBC distributes bits across subbands. Loudness is preferred "
             "for music (perceptual model). SNR optimises raw signal-to-noise "
             "ratio and is rarely chosen.");
 
+        int dirty_sb = (p->subbands != s->snap_subbands);
+        push_dirty_highlight(dirty_sb);
         int sb = (int)p->subbands;
         igSetNextItemWidth(150);
         if (igCombo_Str_arr("Subbands", &sb, subband_labels, OA2DP_SUBBANDS_COUNT, -1))
             p->subbands = (OA2DP_Subbands)sb;
+        pop_dirty_highlight(dirty_sb);
         hover_help(
             "Number of frequency subbands SBC splits the signal into. "
             "8 gives noticeably better quality than 4 for the same bitrate. "
@@ -408,8 +460,17 @@ static void draw_settings(OA2DP_UIState *ui)
         if (p->bitpool > slider_max) p->bitpool = slider_max;
         if (p->bitpool < 2) p->bitpool = 2;
 
+        /* Bitpool dirty uses the post-clamp effective value so the
+         * highlight matches what would actually get written. */
+        int effective_bp_for_dirty = p->bitpool;
+        if (!p->sbc_override_device_max && dev_cap > 0 &&
+            effective_bp_for_dirty > dev_cap)
+            effective_bp_for_dirty = dev_cap;
+        int dirty_bp = (effective_bp_for_dirty != s->snap_bitpool);
+        push_dirty_highlight(dirty_bp);
         igSetNextItemWidth(200);
         igSliderInt("Max Bitpool", &p->bitpool, 2, slider_max, "%d", 0);
+        pop_dirty_highlight(dirty_bp);
         hover_help(
             "SBC's main quality knob. Higher = more bits per frame = better "
             "audio at the cost of more Bluetooth bandwidth. The slider's max "
@@ -450,9 +511,18 @@ static void draw_settings(OA2DP_UIState *ui)
         {
             bool ast = (bool)p->aac_allow_stereo;
             bool amo = (bool)p->aac_allow_mono;
+            int dst = (p->aac_allow_stereo != s->snap_aac_allow_stereo);
+            int dmo = (p->aac_allow_mono   != s->snap_aac_allow_mono);
+
+            push_dirty_highlight(dst);
             igCheckbox("Allow Stereo##aac", &ast);
+            pop_dirty_highlight(dst);
             igSameLine(0, 16);
+
+            push_dirty_highlight(dmo);
             igCheckbox("Allow Mono##aac", &amo);
+            pop_dirty_highlight(dmo);
+
             p->aac_allow_stereo = ast;
             p->aac_allow_mono   = amo;
         }
@@ -460,13 +530,21 @@ static void draw_settings(OA2DP_UIState *ui)
         {
             bool r44 = (bool)p->aac_allow_44_1khz;
             bool r48 = (bool)p->aac_allow_48khz;
+            int d44 = (p->aac_allow_44_1khz != s->snap_aac_allow_44_1khz);
+            int d48 = (p->aac_allow_48khz   != s->snap_aac_allow_48khz);
+
+            push_dirty_highlight(d44);
             igCheckbox("44.1 kHz##aac", &r44);
+            pop_dirty_highlight(d44);
             igSameLine(0, 16);
+
+            push_dirty_highlight(d48);
             igCheckbox("48 kHz##aac", &r48);
+            pop_dirty_highlight(d48);
+
             p->aac_allow_44_1khz = r44;
             p->aac_allow_48khz   = r48;
         }
-        igSetNextItemWidth(200);
         /* 0 = "device default" sentinel; otherwise 64 to the device's
          * Capability.AacBitrate ceiling (or 320 if we don't know it). */
         if (p->aac_bitrate_kbps == 0) p->aac_bitrate_kbps = 256;
@@ -474,7 +552,11 @@ static void draw_settings(OA2DP_UIState *ui)
                                  ? s->cap_aac_bitrate_kbps : 320;
         if (aac_slider_max < 64) aac_slider_max = 320;
         if (p->aac_bitrate_kbps > aac_slider_max) p->aac_bitrate_kbps = aac_slider_max;
+        int dirty_abr_kbps = (p->aac_bitrate_kbps != s->snap_aac_bitrate_kbps);
+        push_dirty_highlight(dirty_abr_kbps);
+        igSetNextItemWidth(200);
         igSliderInt("AAC Bitrate (kbps)", &p->aac_bitrate_kbps, 64, aac_slider_max, "%d", 0);
+        pop_dirty_highlight(dirty_abr_kbps);
         hover_help(
             "Target AAC encode rate. Higher = better quality. The slider "
             "is capped to whatever your device claims it supports — pushing "
@@ -488,7 +570,10 @@ static void draw_settings(OA2DP_UIState *ui)
     /* ABR Enable applies to both codecs. */
     {
         bool abr = (bool)p->abr_enable;
+        int dirty_abr = (p->abr_enable != s->snap_abr_enable);
+        push_dirty_highlight(dirty_abr);
         igCheckbox("Adaptive Bit Rate (ABR)", &abr);
+        pop_dirty_highlight(dirty_abr);
         p->abr_enable = abr;
         hover_help(
             "Adaptive Bit Rate — let the driver lower the codec bitrate "
