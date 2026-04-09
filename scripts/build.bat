@@ -72,7 +72,7 @@ if %errorlevel% neq 0 (
 echo --- Linking ---
 set OBJS=%OUTDIR%\*.obj
 set LIBS=d3d11.lib dxgi.lib user32.lib gdi32.lib shell32.lib dwmapi.lib bthprops.lib ole32.lib propsys.lib advapi32.lib
-link /nologo /subsystem:windows /out:"%EXE%" %OUTDIR%\*.obj %LIBS%
+link /nologo /subsystem:console /out:"%EXE%" %OUTDIR%\*.obj %LIBS%
 if %errorlevel% neq 0 (
     echo Link FAILED
     exit /b 1

@@ -140,29 +140,51 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg,
     return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
-/* ── Entry point ────────────────────────────────────────────────────── */
-
-int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
-                    LPWSTR lpCmdLine, int nCmdShow)
+/* ── Entry point ────────────────────────────────────────────────────
+ *
+ * The binary is built with /SUBSYSTEM:CONSOLE so that cmd.exe properly
+ * waits for us when invoked in CLI mode (--reconnect, --list-devices,
+ * etc).  /SUBSYSTEM:WINDOWS does not — cmd returns to its prompt
+ * immediately and any console output the GUI exe writes back gets
+ * interleaved with the new prompt, making CLI mode unusable.
+ *
+ * The downside of CONSOLE subsystem is that launching from Explorer
+ * normally allocates a fresh console window for the process.  We
+ * detect that (GetConsoleProcessList == 1) and hide+detach the
+ * console before any visible work begins, so a normal GUI launch
+ * doesn't show a stray cmd window.
+ *
+ * Console launches inherit the parent console (count > 1), in which
+ * case we leave it alone — that's exactly the case where we want
+ * stdout to flow to the user's terminal.
+ */
+int wmain(int argc, wchar_t **argv)
 {
-    (void)hPrevInstance;
-    (void)lpCmdLine;
+    HINSTANCE hInstance = GetModuleHandleW(NULL);
+    int nCmdShow = SW_SHOW;
 
     oa2dp_log_init();
 
     /* ── CLI mode short-circuit ─────────────────────────────────────
      * If the user passed a recognised --command argument, run that
      * action headlessly and exit without touching D3D11, ImGui, or
-     * the device scan UI plumbing. */
+     * the device scan UI plumbing.  Console is already attached, so
+     * stdout/stderr just work. */
+    if (oa2dp_cli_is_cli_invocation(argc, argv))
+        return oa2dp_cli_run(argc, argv);
+
+    /* GUI mode — hide and detach the console if we got a fresh one
+     * (i.e. launched from Explorer or another GUI app).  If a parent
+     * console exists (launched from cmd or PowerShell) leave it
+     * alone so log output still has somewhere to go in principle. */
     {
-        int wargc = 0;
-        LPWSTR *wargv = CommandLineToArgvW(GetCommandLineW(), &wargc);
-        if (wargv && oa2dp_cli_is_cli_invocation(wargc, wargv)) {
-            int rc = oa2dp_cli_run(wargc, wargv);
-            LocalFree(wargv);
-            return rc;
+        DWORD console_pids[2];
+        DWORD console_count = GetConsoleProcessList(console_pids, 2);
+        if (console_count == 1) {
+            HWND console = GetConsoleWindow();
+            if (console) ShowWindow(console, SW_HIDE);
+            FreeConsole();
         }
-        if (wargv) LocalFree(wargv);
     }
 
     oa2dp_log(OA2DP_LOG_INFO, "OpenA2DP starting");

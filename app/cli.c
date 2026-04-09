@@ -61,22 +61,9 @@ int oa2dp_cli_is_cli_invocation(int argc, wchar_t **argv)
     return 0;
 }
 
-/* ── Console attach for /SUBSYSTEM:WINDOWS exe ──────────────────────── */
-
-static void attach_parent_console(void)
-{
-    /* If launched from cmd.exe / PowerShell / Windows Terminal, attach
-     * to that console so printf goes where the user expects.  If not
-     * (e.g. double-clicked from Explorer), there is no parent console
-     * and AttachConsole returns FALSE — that's fine, we just stay
-     * silent and rely on logging. */
-    if (!AttachConsole(ATTACH_PARENT_PROCESS))
-        return;
-
-    FILE *unused;
-    freopen_s(&unused, "CONOUT$", "w", stdout);
-    freopen_s(&unused, "CONOUT$", "w", stderr);
-}
+/* The binary is /SUBSYSTEM:CONSOLE so the CRT has already wired up
+ * stdin / stdout / stderr to the inherited (or freshly allocated)
+ * console by the time wmain runs.  No AttachConsole needed. */
 
 /* ── helpers ────────────────────────────────────────────────────────── */
 
@@ -230,8 +217,6 @@ static int cli_switch_stack(const wchar_t *target_arg)
 
 int oa2dp_cli_run(int argc, wchar_t **argv)
 {
-    attach_parent_console();
-
     if (argc < 2) {
         print_usage();
         return 2;
