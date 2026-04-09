@@ -158,7 +158,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     HWND hwnd = CreateWindowW(
         wc.lpszClassName, L"OpenA2DP",
         WS_OVERLAPPEDWINDOW,
-        100, 100, 1280, 820,
+        100, 100, 1280, 900,
         NULL, NULL, hInstance, NULL);
 
     if (!hwnd) {
