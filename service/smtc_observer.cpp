@@ -146,16 +146,15 @@ extern "C" void oa2dp_smtc_poll(void)
             int status_int = (int)status;
             if (status_int != g_last_status) {
                 if (g_last_status >= 0) {
-                    /* This is the line that fires on a single tap. */
                     oa2dp_log(OA2DP_LOG_INFO,
-                              "remote: playback %s (likely tap or app control)",
+                              "remote: playback %s",
                               playback_status_name(status));
                 }
                 g_last_status = status_int;
             }
         } catch (...) {}
 
-        /* ── Track metadata (title + artist) — fires on next/prev */
+        /* ── Track metadata (title + artist) */
         try {
             auto media = session.TryGetMediaPropertiesAsync().get();
             if (media) {
@@ -167,8 +166,7 @@ extern "C" void oa2dp_smtc_poll(void)
                     strcmp(artist_buf, g_last_artist) != 0) {
                     if (g_last_title[0] != '\0') {
                         oa2dp_log(OA2DP_LOG_INFO,
-                                  "remote: track changed -> '%s' by '%s' "
-                                  "(likely double/triple tap)",
+                                  "remote: track changed -> '%s' by '%s'",
                                   title_buf, artist_buf);
                     }
                     snprintf(g_last_title,  sizeof(g_last_title),  "%s", title_buf);
