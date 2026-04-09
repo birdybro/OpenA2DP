@@ -26,10 +26,12 @@ extern "C" {
  * naturally, then if it's still missing cycles AudioSink up to a
  * fixed number of attempts.
  *
- * device_id: BT address string "XX:XX:XX:XX:XX:XX"
+ * device_id:    BT address string "XX:XX:XX:XX:XX:XX"
+ * display_name: device's friendly name (used for endpoint matching
+ *               fallback by oa2dp_audio_status_query); may be NULL.
  * Returns 0 if the worker was launched, -1 if busy or on error.
  */
-int oa2dp_auto_heal_trigger(const char *device_id);
+int oa2dp_auto_heal_trigger(const char *device_id, const char *display_name);
 
 /* Returns 1 if an auto-heal worker is currently running. */
 int oa2dp_auto_heal_busy(void);

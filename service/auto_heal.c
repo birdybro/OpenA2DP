@@ -47,6 +47,7 @@ int oa2dp_auto_heal_busy(void)
 
 typedef struct {
     char device_id[256];
+    char display_name[128];
 } HealParam;
 
 /*
@@ -54,11 +55,12 @@ typedef struct {
  * render endpoint exists, 0 otherwise.  Uses a throwaway status struct
  * so we don't trample the live UI status.
  */
-static int has_endpoint(const char *device_id)
+static int has_endpoint(const char *device_id, const char *display_name)
 {
     OA2DP_DeviceStatus probe;
     memset(&probe, 0, sizeof(probe));
-    return (oa2dp_audio_status_query(device_id, &probe) == 0) ? 1 : 0;
+    return (oa2dp_audio_status_query(device_id, display_name, &probe) == 0)
+               ? 1 : 0;
 }
 
 static DWORD WINAPI heal_thread(LPVOID param)
@@ -72,7 +74,7 @@ static DWORD WINAPI heal_thread(LPVOID param)
 
     int healed = 0;
     for (int attempt = 1; attempt <= HEAL_MAX_ATTEMPTS; attempt++) {
-        if (has_endpoint(p->device_id)) {
+        if (has_endpoint(p->device_id, p->display_name)) {
             if (attempt == 1) {
                 oa2dp_log(OA2DP_LOG_INFO,
                           "auto-heal: endpoint present for %s, no action needed",
@@ -122,7 +124,7 @@ static DWORD WINAPI heal_thread(LPVOID param)
 
 /* ── public API ─────────────────────────────────────────────────────── */
 
-int oa2dp_auto_heal_trigger(const char *device_id)
+int oa2dp_auto_heal_trigger(const char *device_id, const char *display_name)
 {
     if (!device_id || !device_id[0])
         return -1;
@@ -139,6 +141,8 @@ int oa2dp_auto_heal_trigger(const char *device_id)
         return -1;
     }
     snprintf(p->device_id, sizeof(p->device_id), "%s", device_id);
+    snprintf(p->display_name, sizeof(p->display_name), "%s",
+             display_name ? display_name : "");
 
     HANDLE h = CreateThread(NULL, 0, heal_thread, p, 0, NULL);
     if (!h) {

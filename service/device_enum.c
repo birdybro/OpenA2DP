@@ -159,8 +159,12 @@ int oa2dp_device_scan(OA2DP_DeviceList *list)
          * docs/driver-evaluation.md for the gory details. */
         if (stat->connection == OA2DP_CONN_CONNECTED) {
             stat->active_codec = OA2DP_CODEC_UNKNOWN;
-            /* WASAPI gives us the only fields we can honestly populate. */
-            (void)oa2dp_audio_status_query(prof->device_id, stat);
+            /* WASAPI gives us the only fields we can honestly populate.
+             * Pass display_name so the matcher can fall back to friendly
+             * name when the endpoint ID doesn't embed the BT address
+             * (Alternative A2DP Driver does this). */
+            (void)oa2dp_audio_status_query(prof->device_id,
+                                           prof->display_name, stat);
         }
 
         oa2dp_log(OA2DP_LOG_INFO, "device scan: [%d] %s (%s) - %s",
@@ -228,14 +232,16 @@ int oa2dp_device_refresh_status(OA2DP_DeviceList *list)
                     stat->bit_depth   = 0;
                     stat->channels    = 0;
                     stat->estimated_bitrate_kbps = 0;
-                    (void)oa2dp_audio_status_query(prof->device_id, stat);
+                    (void)oa2dp_audio_status_query(prof->device_id,
+                                                   prof->display_name, stat);
 
                     /* If the user opted into auto-heal for this device,
                      * kick off a check on a background thread.  The worker
                      * waits a settle period and only acts if WASAPI still
                      * has no endpoint by then. */
                     if (prof->auto_heal_enabled)
-                        oa2dp_auto_heal_trigger(prof->device_id);
+                        oa2dp_auto_heal_trigger(prof->device_id,
+                                                prof->display_name);
                 }
             }
         }

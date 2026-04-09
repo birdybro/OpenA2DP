@@ -121,15 +121,76 @@ extern "C" void oa2dp_audio_status_shutdown(void)
     oa2dp_log(OA2DP_LOG_INFO, "audio status: shut down");
 }
 
+/* Read PKEY_Device_FriendlyName from a device into a wide buffer.
+ * Returns true on success.  Caller's buffer must be at least 256 wchars. */
+static bool get_friendly_name(IMMDevice *device, wchar_t *out, int out_len)
+{
+    if (!device || !out || out_len <= 0) return false;
+    out[0] = L'\0';
+
+    IPropertyStore *props = nullptr;
+    if (FAILED(device->OpenPropertyStore(STGM_READ, &props)) || !props)
+        return false;
+
+    bool ok = false;
+    PROPVARIANT pv;
+    PropVariantInit(&pv);
+    if (SUCCEEDED(props->GetValue(PKEY_Device_FriendlyName, &pv))) {
+        if (pv.vt == VT_LPWSTR && pv.pwszVal) {
+            wcsncpy_s(out, out_len, pv.pwszVal, _TRUNCATE);
+            ok = true;
+        }
+    }
+    PropVariantClear(&pv);
+    props->Release();
+    return ok;
+}
+
+/* Pull WASAPI mix format off an endpoint into status fields. */
+static bool fill_mix_format(IMMDevice *device, OA2DP_DeviceStatus *status)
+{
+    IAudioClient *client = nullptr;
+    HRESULT hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL,
+                                  nullptr, (void **)&client);
+    if (FAILED(hr) || !client)
+        return false;
+
+    bool ok = false;
+    WAVEFORMATEX *wfx = nullptr;
+    if (SUCCEEDED(client->GetMixFormat(&wfx)) && wfx) {
+        status->sample_rate = (int)wfx->nSamplesPerSec;
+        status->channels    = (int)wfx->nChannels;
+        if (wfx->wBitsPerSample > 0)
+            status->bit_depth = (int)wfx->wBitsPerSample;
+        status->estimated_bitrate_kbps =
+            (int)(wfx->nAvgBytesPerSec * 8 / 1000);
+        CoTaskMemFree(wfx);
+        ok = true;
+    }
+    client->Release();
+    return ok;
+}
+
 extern "C" int oa2dp_audio_status_query(const char *device_id,
+                                        const char *display_name,
                                         OA2DP_DeviceStatus *status)
 {
     if (!g_enumerator || !device_id || !status)
         return -1;
 
-    /* Build the search string from the BT address. */
-    wchar_t search[32];
-    bt_addr_to_search(device_id, search, 32);
+    /* Build address-search string (e.g. "aabbccddeeff"). */
+    wchar_t addr_search[32];
+    bt_addr_to_search(device_id, addr_search, 32);
+
+    /* Build name-search string (wide UTF-16) if a display name was given. */
+    wchar_t name_search[128];
+    name_search[0] = L'\0';
+    bool have_name = false;
+    if (display_name && display_name[0]) {
+        if (MultiByteToWideChar(CP_UTF8, 0, display_name, -1,
+                                name_search, 128) > 0)
+            have_name = true;
+    }
 
     /* Enumerate active audio render endpoints. */
     IMMDeviceCollection *collection = nullptr;
@@ -141,72 +202,94 @@ extern "C" int oa2dp_audio_status_query(const char *device_id,
     UINT count = 0;
     collection->GetCount(&count);
 
+    /* Two-pass strategy: pass 1 by BT address in endpoint ID,
+     * pass 2 by display-name substring in friendly name.
+     * If both passes miss, log every endpoint we saw so the user
+     * can tell us what their stack is calling things. */
     bool found = false;
+    wchar_t matched_name[256] = {0};
 
+    /* ── Pass 1: BT address in endpoint ID ─────────────────────── */
     for (UINT i = 0; i < count && !found; i++) {
         IMMDevice *device = nullptr;
         if (FAILED(collection->Item(i, &device)) || !device)
             continue;
 
-        /* Get the endpoint ID string. */
         LPWSTR ep_id = nullptr;
         if (SUCCEEDED(device->GetId(&ep_id)) && ep_id) {
-            if (wstr_icontains(ep_id, search)) {
-                found = true;
-
-                /* Query the mix format for sample rate / bit depth / channels. */
-                IAudioClient *client = nullptr;
-                hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL,
-                                      nullptr, (void **)&client);
-                if (SUCCEEDED(hr) && client) {
-                    WAVEFORMATEX *wfx = nullptr;
-                    if (SUCCEEDED(client->GetMixFormat(&wfx)) && wfx) {
-                        status->sample_rate = (int)wfx->nSamplesPerSec;
-                        status->channels    = (int)wfx->nChannels;
-
-                        /* Bit depth: use wBitsPerSample, but for float
-                         * formats report the container size. */
-                        if (wfx->wBitsPerSample > 0)
-                            status->bit_depth = (int)wfx->wBitsPerSample;
-
-                        /* Estimate bitrate for PCM output path. */
-                        status->estimated_bitrate_kbps =
-                            (int)(wfx->nAvgBytesPerSec * 8 / 1000);
-
-                        oa2dp_log(OA2DP_LOG_DEBUG,
-                            "audio status: %s -> %d Hz, %d-bit, %d ch, ~%d kbps",
-                            device_id,
-                            status->sample_rate,
-                            status->bit_depth,
-                            status->channels,
-                            status->estimated_bitrate_kbps);
-
-                        CoTaskMemFree(wfx);
-                    }
-                    client->Release();
-                }
-
-                /* Also try to get the friendly name for logging. */
-                IPropertyStore *props = nullptr;
-                if (SUCCEEDED(device->OpenPropertyStore(STGM_READ, &props)) && props) {
-                    PROPVARIANT pv;
-                    PropVariantInit(&pv);
-                    if (SUCCEEDED(props->GetValue(PKEY_Device_FriendlyName, &pv))) {
-                        if (pv.vt == VT_LPWSTR && pv.pwszVal) {
-                            char name[256];
-                            WideCharToMultiByte(CP_UTF8, 0, pv.pwszVal, -1,
-                                                name, sizeof(name), nullptr, nullptr);
-                            oa2dp_log(OA2DP_LOG_DEBUG,
-                                "audio status: matched endpoint '%s'", name);
-                        }
-                    }
-                    PropVariantClear(&pv);
-                    props->Release();
+            if (wstr_icontains(ep_id, addr_search)) {
+                if (fill_mix_format(device, status)) {
+                    get_friendly_name(device, matched_name, 256);
+                    found = true;
                 }
             }
             CoTaskMemFree(ep_id);
         }
         device->Release();
+    }
+
+    /* ── Pass 2: display name in PKEY_Device_FriendlyName ──────── */
+    if (!found && have_name) {
+        for (UINT i = 0; i < count && !found; i++) {
+            IMMDevice *device = nullptr;
+            if (FAILED(collection->Item(i, &device)) || !device)
+                continue;
+
+            wchar_t fname[256];
+            if (get_friendly_name(device, fname, 256)) {
+                if (wstr_icontains(fname, name_search)) {
+                    if (fill_mix_format(device, status)) {
+                        wcsncpy_s(matched_name, 256, fname, _TRUNCATE);
+                        found = true;
+                    }
+                }
+            }
+            device->Release();
+        }
+    }
+
+    if (found) {
+        char nameu[256] = {0};
+        WideCharToMultiByte(CP_UTF8, 0, matched_name, -1,
+                            nameu, sizeof(nameu), nullptr, nullptr);
+        oa2dp_log(OA2DP_LOG_DEBUG,
+            "audio status: %s -> '%s' %d Hz, %d-bit, %d ch, ~%d kbps",
+            device_id, nameu,
+            status->sample_rate, status->bit_depth,
+            status->channels, status->estimated_bitrate_kbps);
+    } else {
+        /* Diagnostic dump — list every render endpoint we saw so we
+         * can figure out what the user's stack is naming things.
+         * Logged at INFO so it shows up by default once. */
+        oa2dp_log(OA2DP_LOG_INFO,
+            "audio status: no endpoint match for %s ('%s'). Enumerated render endpoints:",
+            device_id, display_name ? display_name : "(no name)");
+
+        for (UINT i = 0; i < count; i++) {
+            IMMDevice *device = nullptr;
+            if (FAILED(collection->Item(i, &device)) || !device)
+                continue;
+
+            wchar_t fname[256];
+            char fnameu[256] = {0};
+            LPWSTR ep_id = nullptr;
+            char ep_idu[512] = {0};
+
+            get_friendly_name(device, fname, 256);
+            WideCharToMultiByte(CP_UTF8, 0, fname, -1,
+                                fnameu, sizeof(fnameu), nullptr, nullptr);
+
+            if (SUCCEEDED(device->GetId(&ep_id)) && ep_id) {
+                WideCharToMultiByte(CP_UTF8, 0, ep_id, -1,
+                                    ep_idu, sizeof(ep_idu), nullptr, nullptr);
+                CoTaskMemFree(ep_id);
+            }
+
+            oa2dp_log(OA2DP_LOG_INFO,
+                "  [%u] '%s' (%s)", i, fnameu, ep_idu);
+
+            device->Release();
+        }
     }
 
     collection->Release();
