@@ -49,6 +49,60 @@ static OA2DP_ServiceState map_state(DWORD scm_state)
     }
 }
 
+/* ── stack inference ────────────────────────────────────────────────── */
+
+static int icontains_ascii(const char *haystack, const char *needle)
+{
+    if (!haystack || !needle) return 0;
+    size_t hlen = strlen(haystack), nlen = strlen(needle);
+    if (nlen > hlen) return 0;
+    for (size_t i = 0; i + nlen <= hlen; i++) {
+        int match = 1;
+        for (size_t k = 0; k < nlen; k++) {
+            char a = haystack[i + k], b = needle[k];
+            if (a >= 'A' && a <= 'Z') a = (char)(a + 32);
+            if (b >= 'A' && b <= 'Z') b = (char)(b + 32);
+            if (a != b) { match = 0; break; }
+        }
+        if (match) return 1;
+    }
+    return 0;
+}
+
+const char *oa2dp_driver_active_stack_label(const OA2DP_DriverList *list,
+                                            char *out, int out_size)
+{
+    if (!out || out_size <= 0) return NULL;
+    out[0] = '\0';
+    if (!list) { snprintf(out, out_size, "Unknown"); return out; }
+
+    int ms_running  = 0;
+    int alt_running = 0;
+
+    for (int i = 0; i < list->count; i++) {
+        const OA2DP_A2dpService *s = &list->services[i];
+        if (s->state != OA2DP_SVC_RUNNING)
+            continue;
+
+        /* "BthA2dp" is the canonical Microsoft stack name; treat any
+         * other a2dp-named running service as the alternative. */
+        if (icontains_ascii(s->name, "btha2dp"))
+            ms_running = 1;
+        else
+            alt_running = 1;
+    }
+
+    if (ms_running && alt_running)
+        snprintf(out, out_size, "Multiple stacks running");
+    else if (ms_running)
+        snprintf(out, out_size, "Microsoft (BthA2dp)");
+    else if (alt_running)
+        snprintf(out, out_size, "Alternative A2DP Driver");
+    else
+        snprintf(out, out_size, "No A2DP driver running");
+    return out;
+}
+
 /* ── elevation check ────────────────────────────────────────────────── */
 
 int oa2dp_process_is_elevated(void)

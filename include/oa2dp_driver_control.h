@@ -83,6 +83,24 @@ const char *oa2dp_driver_state_label(OA2DP_ServiceState state);
  */
 int oa2dp_process_is_elevated(void);
 
+/*
+ * Infer which A2DP stack is currently handling Bluetooth audio on
+ * this machine, based on which services in the list are running.
+ *
+ * Heuristic (machine-wide, not per device — Windows doesn't expose
+ * which stack handles a specific endpoint in user mode):
+ *
+ *   BthA2dp running, no Alt running    -> "Microsoft"
+ *   AltA2dp* running, BthA2dp stopped  -> "Alternative A2DP Driver"
+ *   Both running                       -> "Multiple"
+ *   Neither running                    -> "None"
+ *
+ * Writes a short label into out (caller buffer).  Returns the same
+ * pointer for convenience.
+ */
+const char *oa2dp_driver_active_stack_label(const OA2DP_DriverList *list,
+                                            char *out, int out_size);
+
 #ifdef __cplusplus
 }
 #endif

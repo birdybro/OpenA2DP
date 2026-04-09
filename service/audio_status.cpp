@@ -252,12 +252,15 @@ extern "C" int oa2dp_audio_status_query(const char *device_id,
         char nameu[256] = {0};
         WideCharToMultiByte(CP_UTF8, 0, matched_name, -1,
                             nameu, sizeof(nameu), nullptr, nullptr);
+        snprintf(status->endpoint_name, sizeof(status->endpoint_name),
+                 "%s", nameu);
         oa2dp_log(OA2DP_LOG_DEBUG,
             "audio status: %s -> '%s' %d Hz, %d-bit, %d ch, ~%d kbps",
             device_id, nameu,
             status->sample_rate, status->bit_depth,
             status->channels, status->estimated_bitrate_kbps);
     } else {
+        status->endpoint_name[0] = '\0';
         /* Diagnostic dump — list every render endpoint we saw so we
          * can figure out what the user's stack is naming things.
          * Logged at INFO so it shows up by default once. */

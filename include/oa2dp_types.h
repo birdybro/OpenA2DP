@@ -132,6 +132,19 @@ typedef struct OA2DP_DeviceStatus {
     OA2DP_Subbands subbands;
     int bitpool;
     int estimated_bitrate_kbps;
+
+    /* WASAPI endpoint we matched (PKEY_Device_FriendlyName).  Empty
+     * if no endpoint was found (i.e. status panel shows the
+     * "connected but silent" warning). */
+    char endpoint_name[256];
+
+    /* Per-device service registration flags from
+     * BluetoothEnumerateInstalledServices.  These reflect whether
+     * the service is *installed* on the device record, not whether
+     * it's currently the active route — Windows does not expose the
+     * latter in user mode. */
+    int audio_sink_installed;
+    int handsfree_installed;
 } OA2DP_DeviceStatus;
 
 /* ── Single log entry ───────────────────────────────────────────────── */

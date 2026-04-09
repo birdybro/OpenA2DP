@@ -28,6 +28,17 @@ DEFINE_GUID(OA2DP_GUID_BTHPORT,
     0x850302a, 0xb344, 0x4fda,
     0x9b, 0xe9, 0x90, 0x57, 0x6b, 0x8d, 0x46, 0xf0);
 
+/* A2DP Audio Sink and Handsfree service GUIDs (also defined in actions.c —
+ * keeping a local copy here so device_enum doesn't depend on actions.c). */
+static const GUID GUID_OA2DP_AudioSink = {
+    0x0000110B, 0x0000, 0x1000,
+    {0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB}
+};
+static const GUID GUID_OA2DP_Handsfree = {
+    0x0000111E, 0x0000, 0x1000,
+    {0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB}
+};
+
 static HDEVNOTIFY g_notify_handle = NULL;
 
 /* ── helpers ────────────────────────────────────────────────────────── */
@@ -63,6 +74,45 @@ static void wide_to_utf8(const WCHAR *src, char *dst, int dst_size)
     int len = WideCharToMultiByte(CP_UTF8, 0, src, -1, dst, dst_size, NULL, NULL);
     if (len <= 0 && dst_size > 0)
         dst[0] = '\0';
+}
+
+/*
+ * Query which Bluetooth services are installed on a device record and
+ * set status->audio_sink_installed / status->handsfree_installed.
+ *
+ * "Installed" here means registered against the device — i.e. the bit
+ * BluetoothSetServiceState reads.  It doesn't tell us which one is the
+ * active audio route; Windows doesn't expose that in user mode.
+ */
+static void query_installed_services(BLUETOOTH_DEVICE_INFO *info,
+                                     OA2DP_DeviceStatus *stat)
+{
+    stat->audio_sink_installed = 0;
+    stat->handsfree_installed  = 0;
+
+    DWORD num_services = 0;
+    DWORD result = BluetoothEnumerateInstalledServices(NULL, info,
+                                                       &num_services, NULL);
+    if (num_services == 0)
+        return;
+    if (result != ERROR_SUCCESS && result != ERROR_MORE_DATA)
+        return;
+
+    GUID *guids = (GUID *)malloc(sizeof(GUID) * num_services);
+    if (!guids) return;
+
+    result = BluetoothEnumerateInstalledServices(NULL, info,
+                                                 &num_services, guids);
+    if (result == ERROR_SUCCESS) {
+        for (DWORD i = 0; i < num_services; i++) {
+            if (memcmp(&guids[i], &GUID_OA2DP_AudioSink, sizeof(GUID)) == 0)
+                stat->audio_sink_installed = 1;
+            else if (memcmp(&guids[i], &GUID_OA2DP_Handsfree, sizeof(GUID)) == 0)
+                stat->handsfree_installed = 1;
+        }
+    }
+
+    free(guids);
 }
 
 /* ── scan ───────────────────────────────────────────────────────────── */
@@ -152,6 +202,10 @@ int oa2dp_device_scan(OA2DP_DeviceList *list)
                                ? OA2DP_CONN_CONNECTED
                                : OA2DP_CONN_DISCONNECTED;
 
+        /* Per-device service registration flags (works for paired
+         * devices regardless of connection state). */
+        query_installed_services(&device_info, stat);
+
         /* For connected devices, query the audio endpoint for real data.
          * Codec/bitpool/stereo-mode etc. are AVDTP-internal and not
          * exposed by any user-mode Windows API, so we leave them at
@@ -216,6 +270,11 @@ int oa2dp_device_refresh_status(OA2DP_DeviceList *list)
             stat->connection = info.fConnected
                                    ? OA2DP_CONN_CONNECTED
                                    : OA2DP_CONN_DISCONNECTED;
+
+            /* Refresh installed-service flags every poll — they can
+             * change when something else (or our own service buttons)
+             * toggles BluetoothSetServiceState. */
+            query_installed_services(&info, stat);
 
             if (stat->connection != prev) {
                 oa2dp_log(OA2DP_LOG_INFO, "status: %s is now %s",

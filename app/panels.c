@@ -346,7 +346,8 @@ static void draw_status(OA2DP_UIState *ui)
         return;
     }
 
-    const OA2DP_DeviceStatus *s = &ui->devices.statuses[ui->selected];
+    const OA2DP_DeviceProfile *p = &ui->devices.profiles[ui->selected];
+    const OA2DP_DeviceStatus  *s = &ui->devices.statuses[ui->selected];
 
     /* Connection */
     {
@@ -354,6 +355,23 @@ static void draw_status(OA2DP_UIState *ui)
         igText("Connection:");
         igSameLine(0, 4);
         igTextColored(col, "%s", conn_labels[s->connection]);
+    }
+
+    /* Bluetooth address — useful for CLI mode and copy/paste. */
+    {
+        igText("Address:");
+        igSameLine(0, 4);
+        igTextDisabled("%s", p->device_id);
+    }
+
+    /* Active A2DP stack inferred from SCM service state. */
+    {
+        char stack_label[64];
+        oa2dp_driver_active_stack_label(&ui->drivers,
+                                        stack_label, sizeof(stack_label));
+        igText("Stack:");
+        igSameLine(0, 4);
+        igTextDisabled("%s", stack_label);
     }
 
     igSeparator();
@@ -370,6 +388,35 @@ static void draw_status(OA2DP_UIState *ui)
     if (igBeginTable("##statustbl", 2, ImGuiTableFlags_None, tbl_size, 0)) {
         igTableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 140, 0);
         igTableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 0, 0);
+
+        if (s->endpoint_name[0]) {
+            igTableNextRow(0, 0);
+            igTableNextColumn(); igText("WASAPI Endpoint");
+            igTableNextColumn(); igText("%s", s->endpoint_name);
+        }
+
+        /* Installed Bluetooth services on this device record. */
+        igTableNextRow(0, 0);
+        igTableNextColumn(); igText("AudioSink (A2DP)");
+        igTableNextColumn();
+        {
+            ImVec4_c on  = { 0.2f, 0.9f, 0.2f, 1.0f };
+            ImVec4_c off = { 0.6f, 0.6f, 0.6f, 1.0f };
+            igTextColored(s->audio_sink_installed ? on : off,
+                          "%s",
+                          s->audio_sink_installed ? "installed" : "not installed");
+        }
+
+        igTableNextRow(0, 0);
+        igTableNextColumn(); igText("Handsfree (HFP)");
+        igTableNextColumn();
+        {
+            ImVec4_c on  = { 1.0f, 0.7f, 0.0f, 1.0f }; /* yellow — usually unwanted */
+            ImVec4_c off = { 0.6f, 0.6f, 0.6f, 1.0f };
+            igTextColored(s->handsfree_installed ? on : off,
+                          "%s",
+                          s->handsfree_installed ? "installed" : "not installed");
+        }
 
         if (s->sample_rate > 0) {
             igTableNextRow(0, 0);
