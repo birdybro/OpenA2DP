@@ -95,10 +95,10 @@ static int valid_bt_address(const char *s)
 static void print_usage(void)
 {
     fprintf(stderr,
-        "OpenA2DP - command-line Bluetooth audio control\n"
+        "OpenA2DP-cli - command-line Bluetooth audio control\n"
         "\n"
         "Usage:\n"
-        "  OpenA2DP.exe [command] [args]\n"
+        "  OpenA2DP-cli.exe <command> [args]\n"
         "\n"
         "Per-device actions (need <addr> in form XX:XX:XX:XX:XX:XX):\n"
         "  --reconnect <addr>          Cycle the A2DP AudioSink service\n"
@@ -116,7 +116,7 @@ static void print_usage(void)
         "\n"
         "  --help                      Show this message\n"
         "\n"
-        "With no arguments, OpenA2DP launches the GUI.\n");
+        "For the graphical interface, launch OpenA2DP.exe instead.\n");
 }
 
 static const char *conn_str(OA2DP_ConnState s)

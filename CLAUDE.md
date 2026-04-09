@@ -22,7 +22,13 @@ OpenA2DP is a minimal Windows Bluetooth A2DP (Advanced Audio Distribution Profil
 scripts\build.bat
 ```
 
-Requires: Visual Studio with "Desktop development with C++" workload, Windows SDK. Output: `build\OpenA2DP.exe`.
+Requires: Visual Studio with "Desktop development with C++" workload, Windows SDK.
+
+**Outputs two binaries from the same .obj set:**
+- `build\OpenA2DP.exe` — `/SUBSYSTEM:WINDOWS`, entry `wWinMain`. The GUI. No console window.
+- `build\OpenA2DP-cli.exe` — `/SUBSYSTEM:CONSOLE`, entry `wmain`. Headless CLI. cmd.exe / PowerShell wait for it.
+
+`main.c` defines both `wWinMain` and `wmain`; the linker pulls in only the entry point matching each binary's `/SUBSYSTEM`. The CLI binary refuses to launch the GUI on no-args (prints usage); the GUI binary ignores any args. **Do not collapse these back into a single binary** — every previous attempt has either flashed a console window on Explorer launch or made cmd.exe not wait for CLI mode.
 
 ### Running tests
 

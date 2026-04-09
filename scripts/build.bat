@@ -13,7 +13,8 @@ set CIMGUI=%ROOT%\third_party\cimgui
 set IMGUI=%CIMGUI%\imgui
 set BACKENDS=%IMGUI%\backends
 set OUTDIR=%ROOT%\build
-set EXE=%OUTDIR%\OpenA2DP.exe
+set EXE_GUI=%OUTDIR%\OpenA2DP.exe
+set EXE_CLI=%OUTDIR%\OpenA2DP-cli.exe
 
 if not exist "%OUTDIR%" mkdir "%OUTDIR%"
 
@@ -69,13 +70,26 @@ if %errorlevel% neq 0 (
 )
 
 :: ── Link ───────────────────────────────────────────────────────────
-echo --- Linking ---
-set OBJS=%OUTDIR%\*.obj
+::
+:: Two binaries from the same .obj set:
+::   OpenA2DP.exe       - GUI binary, /SUBSYSTEM:WINDOWS (no console flash)
+::   OpenA2DP-cli.exe   - CLI binary, /SUBSYSTEM:CONSOLE (cmd waits for it)
+::
+:: main.c defines BOTH wWinMain and wmain; the linker pulls in the
+:: appropriate one for each subsystem and the other becomes dead code.
+echo --- Linking GUI binary ---
 set LIBS=d3d11.lib dxgi.lib user32.lib gdi32.lib shell32.lib dwmapi.lib bthprops.lib ole32.lib propsys.lib advapi32.lib
-link /nologo /subsystem:console /out:"%EXE%" %OUTDIR%\*.obj %LIBS%
+link /nologo /subsystem:windows /out:"%EXE_GUI%" %OUTDIR%\*.obj %LIBS%
 if %errorlevel% neq 0 (
-    echo Link FAILED
+    echo GUI link FAILED
     exit /b 1
 )
 
-echo --- Build OK: %EXE% ---
+echo --- Linking CLI binary ---
+link /nologo /subsystem:console /out:"%EXE_CLI%" %OUTDIR%\*.obj %LIBS%
+if %errorlevel% neq 0 (
+    echo CLI link FAILED
+    exit /b 1
+)
+
+echo --- Build OK: %EXE_GUI% + %EXE_CLI% ---

@@ -30,6 +30,7 @@
 #include "oa2dp_log.h"
 #include "oa2dp_tray.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* Forward declaration — we need the UI state in WndProc for device changes. */
@@ -140,53 +141,60 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg,
     return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
-/* ── Entry point ────────────────────────────────────────────────────
+/* ── Entry points ───────────────────────────────────────────────────
  *
- * The binary is built with /SUBSYSTEM:CONSOLE so that cmd.exe properly
- * waits for us when invoked in CLI mode (--reconnect, --list-devices,
- * etc).  /SUBSYSTEM:WINDOWS does not — cmd returns to its prompt
- * immediately and any console output the GUI exe writes back gets
- * interleaved with the new prompt, making CLI mode unusable.
+ * OpenA2DP ships as TWO binaries built from the same object files:
  *
- * The downside of CONSOLE subsystem is that launching from Explorer
- * normally allocates a fresh console window for the process.  We
- * detect that (GetConsoleProcessList == 1) and hide+detach the
- * console before any visible work begins, so a normal GUI launch
- * doesn't show a stray cmd window.
+ *   OpenA2DP.exe       /SUBSYSTEM:WINDOWS  -> wWinMain  -> run_gui
+ *   OpenA2DP-cli.exe   /SUBSYSTEM:CONSOLE  -> wmain     -> CLI
  *
- * Console launches inherit the parent console (count > 1), in which
- * case we leave it alone — that's exactly the case where we want
- * stdout to flow to the user's terminal.
+ * Reason for the split:
+ *   - /SUBSYSTEM:WINDOWS gives a clean GUI launch from Explorer with
+ *     no flashing console window, but cmd.exe doesn't wait for it,
+ *     which makes CLI commands unusable.
+ *   - /SUBSYSTEM:CONSOLE makes cmd wait properly and lets the CRT
+ *     wire up stdin/stdout/stderr automatically, but allocates a
+ *     fresh console window when launched from Explorer.  Hiding it
+ *     after the fact still flashes for one frame.
+ *
+ * Two binaries solves both problems and is the standard approach for
+ * dual-mode dev tools (devenv.exe, code.exe, etc).  The linker pulls
+ * in only the entry point matching its /SUBSYSTEM, so the other
+ * function is just dead code in each binary.
  */
+
+static int run_gui(HINSTANCE hInstance, int nCmdShow);
+
+/* CLI binary entry — /SUBSYSTEM:CONSOLE. */
 int wmain(int argc, wchar_t **argv)
 {
-    HINSTANCE hInstance = GetModuleHandleW(NULL);
-    int nCmdShow = SW_SHOW;
-
     oa2dp_log_init();
 
-    /* ── CLI mode short-circuit ─────────────────────────────────────
-     * If the user passed a recognised --command argument, run that
-     * action headlessly and exit without touching D3D11, ImGui, or
-     * the device scan UI plumbing.  Console is already attached, so
-     * stdout/stderr just work. */
     if (oa2dp_cli_is_cli_invocation(argc, argv))
         return oa2dp_cli_run(argc, argv);
 
-    /* GUI mode — hide and detach the console if we got a fresh one
-     * (i.e. launched from Explorer or another GUI app).  If a parent
-     * console exists (launched from cmd or PowerShell) leave it
-     * alone so log output still has somewhere to go in principle. */
-    {
-        DWORD console_pids[2];
-        DWORD console_count = GetConsoleProcessList(console_pids, 2);
-        if (console_count == 1) {
-            HWND console = GetConsoleWindow();
-            if (console) ShowWindow(console, SW_HIDE);
-            FreeConsole();
-        }
-    }
+    /* CLI binary invoked with no recognized command — print usage
+     * and exit.  This binary intentionally doesn't fall through to
+     * the GUI; users who want the GUI should launch OpenA2DP.exe. */
+    fprintf(stderr,
+        "OpenA2DP-cli: no command specified.\n"
+        "Run 'OpenA2DP-cli.exe --help' for available commands,\n"
+        "or launch OpenA2DP.exe for the graphical interface.\n");
+    return 2;
+}
 
+/* GUI binary entry — /SUBSYSTEM:WINDOWS. */
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
+                    LPWSTR lpCmdLine, int nCmdShow)
+{
+    (void)hPrevInstance;
+    (void)lpCmdLine;
+    oa2dp_log_init();
+    return run_gui(hInstance, nCmdShow);
+}
+
+static int run_gui(HINSTANCE hInstance, int nCmdShow)
+{
     oa2dp_log(OA2DP_LOG_INFO, "OpenA2DP starting");
 
     /* Register window class. */

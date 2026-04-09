@@ -39,7 +39,11 @@ A minimal **Windows-only** Bluetooth A2DP control tool. Manage your Bluetooth st
 scripts\build.bat
 ```
 
-Output: `build\OpenA2DP.exe`
+Outputs **two binaries**:
+- `build\OpenA2DP.exe` — the GUI (Windows subsystem, no console flash on launch)
+- `build\OpenA2DP-cli.exe` — the headless command-line tool (Console subsystem, so cmd.exe waits for it properly)
+
+Both share the same object files; the linker just produces two executables with different `/SUBSYSTEM` and entry points.
 
 ### Run Tests
 
@@ -60,16 +64,22 @@ tests\build_and_test.bat
 
 ### Command-line use
 
-OpenA2DP can also run headlessly for scripting and Task Scheduler use:
+Use the separate `OpenA2DP-cli.exe` for scripting and Task Scheduler:
 
 ```
-OpenA2DP.exe --reconnect AA:BB:CC:DD:EE:FF
-OpenA2DP.exe --disable-hfp AA:BB:CC:DD:EE:FF
-OpenA2DP.exe --enable-a2dp AA:BB:CC:DD:EE:FF
-OpenA2DP.exe --help
+OpenA2DP-cli.exe --reconnect AA:BB:CC:DD:EE:FF
+OpenA2DP-cli.exe --disable-hfp AA:BB:CC:DD:EE:FF
+OpenA2DP-cli.exe --enable-a2dp AA:BB:CC:DD:EE:FF
+OpenA2DP-cli.exe --list-devices
+OpenA2DP-cli.exe --list-stacks
+OpenA2DP-cli.exe --switch-stack ms          # needs admin
+OpenA2DP-cli.exe --switch-stack alt         # needs admin
+OpenA2DP-cli.exe --start-service BthA2dp    # needs admin
+OpenA2DP-cli.exe --stop-service AltA2DP     # needs admin
+OpenA2DP-cli.exe --help
 ```
 
-When launched from a terminal, output goes to that terminal. When launched from Task Scheduler or Explorer with no parent console, the action runs silently and the process exits.
+The CLI binary is a separate `/SUBSYSTEM:CONSOLE` executable so cmd.exe and PowerShell wait for it properly. Service-control commands (`--switch-stack`, `--start-service`, `--stop-service`) require running the terminal as Administrator.
 
 ## Architecture
 
