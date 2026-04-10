@@ -100,6 +100,96 @@ static void save_dirty_profiles(void)
     snapshot_profiles();
 }
 
+/* ── HFP fallback detection ─────────────────────────────────────────
+ *
+ * When Windows Bluetooth flips a device from A2DP to HFP/SCO (e.g.
+ * because some app opened the mic), the WASAPI render endpoint
+ * mix format collapses from stereo @ 44.1/48 kHz to mono @ 8 or
+ * 16 kHz — the unambiguous HFP signature.  We detect that on the
+ * refresh tick and fire a one-shot tray notification telling the
+ * user to disable HFP or enable the HFP watchdog.
+ *
+ * Tracked per-address with hysteresis (warned set on entry, cleared
+ * when the format goes back above HFP).  Respects the master tray
+ * notifications toggle automatically because oa2dp_tray_notify
+ * already does.
+ */
+#define HFP_MAX_SAMPLE_RATE 16000
+
+static char g_hfp_warned[OA2DP_MAX_DEVICES][32];
+static int  g_hfp_warned_count = 0;
+
+static int hfp_warned(const char *addr)
+{
+    for (int i = 0; i < g_hfp_warned_count; i++)
+        if (strcmp(g_hfp_warned[i], addr) == 0) return 1;
+    return 0;
+}
+
+static void mark_hfp_warned(const char *addr)
+{
+    if (g_hfp_warned_count >= OA2DP_MAX_DEVICES) return;
+    snprintf(g_hfp_warned[g_hfp_warned_count], 32, "%s", addr);
+    g_hfp_warned_count++;
+}
+
+static void clear_hfp_warned(const char *addr)
+{
+    for (int i = 0; i < g_hfp_warned_count; i++) {
+        if (strcmp(g_hfp_warned[i], addr) == 0) {
+            for (int j = i; j < g_hfp_warned_count - 1; j++)
+                memcpy(g_hfp_warned[j], g_hfp_warned[j + 1], 32);
+            g_hfp_warned_count--;
+            return;
+        }
+    }
+}
+
+static void check_hfp_fallback(void)
+{
+    for (int i = 0; i < g_ui.devices.count; i++) {
+        const OA2DP_DeviceProfile *p = &g_ui.devices.profiles[i];
+        const OA2DP_DeviceStatus  *s = &g_ui.devices.statuses[i];
+
+        if (s->connection != OA2DP_CONN_CONNECTED) continue;
+        /* Need both fields populated to make a call. */
+        if (s->sample_rate <= 0 || s->channels <= 0) continue;
+
+        /* Strict HFP signature: mono AND low sample rate.  A2DP is
+         * always stereo at >= 44.1 kHz; HFP narrowband is 8 kHz
+         * mono and mSBC wideband is 16 kHz mono. */
+        int looks_like_hfp = (s->channels == 1) &&
+                             (s->sample_rate <= HFP_MAX_SAMPLE_RATE);
+
+        if (looks_like_hfp) {
+            if (!hfp_warned(p->device_id)) {
+                char title[128];
+                char msg[256];
+                snprintf(title, sizeof(title),
+                         "HFP took over: %s", p->display_name);
+                snprintf(msg, sizeof(msg),
+                         "Audio dropped to %d Hz mono — voice quality only. "
+                         "Use Disable HFP or enable HFP Watchdog to fix.",
+                         s->sample_rate);
+                oa2dp_tray_notify(title, msg);
+                oa2dp_log(OA2DP_LOG_WARN,
+                          "hfp: %s ('%s') in HFP mode (%d Hz / %d ch) — notified",
+                          p->device_id, p->display_name,
+                          s->sample_rate, s->channels);
+                mark_hfp_warned(p->device_id);
+            }
+        } else if (hfp_warned(p->device_id)) {
+            /* Back to A2DP — clear the flag so we'll warn again if
+             * HFP takes over a second time this session. */
+            clear_hfp_warned(p->device_id);
+            oa2dp_log(OA2DP_LOG_INFO,
+                      "hfp: %s ('%s') back to A2DP (%d Hz / %d ch)",
+                      p->device_id, p->display_name,
+                      s->sample_rate, s->channels);
+        }
+    }
+}
+
 /* ── Battery low notifications ──────────────────────────────────────
  *
  * On every refresh tick we walk the connected device list and fire
@@ -511,6 +601,7 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
         if (now - last_refresh >= REFRESH_INTERVAL_MS) {
             oa2dp_device_refresh_status(&g_ui.devices);
             check_battery_warnings();
+            check_hfp_fallback();
             last_refresh = now;
         }
         if (now - last_save >= SAVE_INTERVAL_MS) {
