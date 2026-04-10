@@ -14,6 +14,8 @@
 #include <windows.h>
 #include <mmdeviceapi.h>
 #include <audioclient.h>
+#include <audiopolicy.h>
+#include <endpointvolume.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <propvarutil.h>
 
@@ -23,6 +25,39 @@
 #include <stdio.h>
 #include <string.h>
 #include <wchar.h>
+
+/* ── IPolicyConfig: undocumented but stable since Windows 7 ─────────
+ *
+ * Used to set the system default audio endpoint without going through
+ * the Sound Settings UI.  Same interface every audio-switcher tool
+ * (SoundSwitch, EarTrumpet, NirCmd, etc.) uses.  The vtable order
+ * below is THE canonical layout — getting it wrong silently calls
+ * the wrong function and can corrupt audio settings, so do not
+ * reorder.
+ */
+const CLSID CLSID_CPolicyConfigClient_OA2DP = {
+    0x870af99c, 0x171d, 0x4f9e,
+    { 0xaf, 0x0d, 0xe6, 0x3d, 0xf4, 0x0c, 0x2b, 0xc9 }
+};
+const IID IID_IPolicyConfig_OA2DP = {
+    0xf8679f50, 0x850a, 0x41cf,
+    { 0x9c, 0x72, 0x43, 0x0f, 0x29, 0x02, 0x90, 0xc8 }
+};
+
+interface IPolicyConfig : public IUnknown {
+    virtual HRESULT STDMETHODCALLTYPE GetMixFormat(LPCWSTR, WAVEFORMATEX **) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetDeviceFormat(LPCWSTR, INT, WAVEFORMATEX **) = 0;
+    virtual HRESULT STDMETHODCALLTYPE ResetDeviceFormat(LPCWSTR) = 0;
+    virtual HRESULT STDMETHODCALLTYPE SetDeviceFormat(LPCWSTR, WAVEFORMATEX *, WAVEFORMATEX *) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetProcessingPeriod(LPCWSTR, INT, PINT64, PINT64) = 0;
+    virtual HRESULT STDMETHODCALLTYPE SetProcessingPeriod(LPCWSTR, PINT64) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetShareMode(LPCWSTR, void *) = 0;
+    virtual HRESULT STDMETHODCALLTYPE SetShareMode(LPCWSTR, void *) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetPropertyValue(LPCWSTR, const PROPERTYKEY &, PROPVARIANT *) = 0;
+    virtual HRESULT STDMETHODCALLTYPE SetPropertyValue(LPCWSTR, const PROPERTYKEY &, PROPVARIANT *) = 0;
+    virtual HRESULT STDMETHODCALLTYPE SetDefaultEndpoint(LPCWSTR wszDeviceId, ERole eRole) = 0;
+    virtual HRESULT STDMETHODCALLTYPE SetEndpointVisibility(LPCWSTR, INT) = 0;
+};
 
 /* ── thread-local COM state ─────────────────────────────────────────
  *
@@ -327,4 +362,136 @@ extern "C" int oa2dp_audio_status_query(const char *device_id,
     collection->Release();
     enumerator->Release();
     return found ? 0 : -1;
+}
+
+/* Find the WASAPI render endpoint matching this Bluetooth device
+ * (same two-pass strategy as oa2dp_audio_status_query) and return
+ * its endpoint ID.  Caller must CoTaskMemFree() the result. */
+static LPWSTR find_endpoint_id(const char *device_id,
+                               const char *display_name)
+{
+    if (!device_id) return nullptr;
+
+    wchar_t addr_search[32];
+    bt_addr_to_search(device_id, addr_search, 32);
+
+    wchar_t name_search[128];
+    name_search[0] = L'\0';
+    bool have_name = false;
+    if (display_name && display_name[0]) {
+        if (MultiByteToWideChar(CP_UTF8, 0, display_name, -1,
+                                name_search, 128) > 0)
+            have_name = true;
+    }
+
+    IMMDeviceEnumerator *enumerator = nullptr;
+    HRESULT hr = CoCreateInstance(
+        __uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+        __uuidof(IMMDeviceEnumerator), (void **)&enumerator);
+    if (FAILED(hr) || !enumerator) return nullptr;
+
+    IMMDeviceCollection *collection = nullptr;
+    hr = enumerator->EnumAudioEndpoints(
+        eRender, DEVICE_STATE_ACTIVE, &collection);
+    if (FAILED(hr) || !collection) {
+        enumerator->Release();
+        return nullptr;
+    }
+
+    UINT count = 0;
+    collection->GetCount(&count);
+
+    LPWSTR matched_id = nullptr;
+
+    /* Pass 1: BT address in endpoint ID. */
+    for (UINT i = 0; i < count && !matched_id; i++) {
+        IMMDevice *device = nullptr;
+        if (FAILED(collection->Item(i, &device)) || !device) continue;
+
+        LPWSTR ep_id = nullptr;
+        if (SUCCEEDED(device->GetId(&ep_id)) && ep_id) {
+            if (wstr_icontains(ep_id, addr_search)) {
+                matched_id = ep_id; /* keep, caller frees */
+            } else {
+                CoTaskMemFree(ep_id);
+            }
+        }
+        device->Release();
+    }
+
+    /* Pass 2: display-name substring in PKEY_Device_FriendlyName. */
+    if (!matched_id && have_name) {
+        for (UINT i = 0; i < count && !matched_id; i++) {
+            IMMDevice *device = nullptr;
+            if (FAILED(collection->Item(i, &device)) || !device) continue;
+
+            wchar_t fname[256];
+            if (get_friendly_name(device, fname, 256) &&
+                wstr_icontains(fname, name_search)) {
+                LPWSTR ep_id = nullptr;
+                if (SUCCEEDED(device->GetId(&ep_id)) && ep_id)
+                    matched_id = ep_id;
+            }
+            device->Release();
+        }
+    }
+
+    collection->Release();
+    enumerator->Release();
+    return matched_id;
+}
+
+extern "C" int oa2dp_audio_set_default_endpoint(const char *device_id,
+                                                const char *display_name)
+{
+    if (!device_id) return -1;
+
+    LPWSTR ep_id = find_endpoint_id(device_id, display_name);
+    if (!ep_id) {
+        oa2dp_log(OA2DP_LOG_WARN,
+            "set default: no WASAPI endpoint matched %s ('%s')",
+            device_id, display_name ? display_name : "(no name)");
+        return -1;
+    }
+
+    IPolicyConfig *policy = nullptr;
+    HRESULT hr = CoCreateInstance(CLSID_CPolicyConfigClient_OA2DP, nullptr,
+                                  CLSCTX_ALL, IID_IPolicyConfig_OA2DP,
+                                  (void **)&policy);
+    if (FAILED(hr) || !policy) {
+        oa2dp_log(OA2DP_LOG_ERROR,
+            "set default: CoCreateInstance(IPolicyConfig) failed (0x%08X)",
+            (unsigned)hr);
+        CoTaskMemFree(ep_id);
+        return -1;
+    }
+
+    /* Set all three roles so apps that ask for "console", "multimedia",
+     * or "communications" all route to this device.  Most audio
+     * switchers do the same. */
+    bool ok = true;
+    ERole roles[] = { eConsole, eMultimedia, eCommunications };
+    for (int i = 0; i < 3; i++) {
+        hr = policy->SetDefaultEndpoint(ep_id, roles[i]);
+        if (FAILED(hr)) {
+            oa2dp_log(OA2DP_LOG_ERROR,
+                "set default: SetDefaultEndpoint(role=%d) failed (0x%08X)",
+                roles[i], (unsigned)hr);
+            ok = false;
+        }
+    }
+
+    policy->Release();
+
+    if (ok) {
+        char ep_idu[512] = {0};
+        WideCharToMultiByte(CP_UTF8, 0, ep_id, -1,
+                            ep_idu, sizeof(ep_idu), nullptr, nullptr);
+        oa2dp_log(OA2DP_LOG_INFO,
+            "set default: %s ('%s') is now the default audio endpoint (%s)",
+            device_id, display_name ? display_name : "(no name)", ep_idu);
+    }
+
+    CoTaskMemFree(ep_id);
+    return ok ? 0 : -1;
 }

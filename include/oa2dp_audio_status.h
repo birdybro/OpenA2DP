@@ -54,6 +54,21 @@ int oa2dp_audio_status_query(const char *device_id,
                              const char *display_name,
                              OA2DP_DeviceStatus *status);
 
+/*
+ * Set this Bluetooth device's WASAPI render endpoint as the system
+ * default for all three roles (Console, Multimedia, Communications).
+ * Uses the undocumented IPolicyConfig COM interface — same one
+ * SoundSwitch / EarTrumpet / NirCmd use.
+ *
+ * Same matching strategy as audio_status_query (BT address in
+ * endpoint ID, then friendly-name substring fallback).
+ *
+ * Returns 0 on success, -1 if no endpoint matched or the COM call
+ * failed.
+ */
+int oa2dp_audio_set_default_endpoint(const char *device_id,
+                                     const char *display_name);
+
 #ifdef __cplusplus
 }
 #endif
