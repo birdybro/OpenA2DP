@@ -95,8 +95,16 @@ const char *oa2dp_driver_active_stack_label(const OA2DP_DriverList *list,
             alt_running = 1;
     }
 
+    /* When both are loaded, AltA2DP "wins" audio routing — its
+     * user-mode service intercepts the WASAPI render path before
+     * BthA2dp can do anything with it.  So instead of the alarming
+     * "Multiple stacks running" we report Alternative as the active
+     * stack and just note that the Microsoft kernel driver is still
+     * loaded.  Most users see this state because BthA2dp is a kernel
+     * driver that Windows refuses to unload at runtime — it's not a
+     * problem, just cosmetic. */
     if (ms_running && alt_running)
-        snprintf(out, out_size, "Multiple stacks running");
+        snprintf(out, out_size, "Alternative A2DP Driver (Microsoft also loaded)");
     else if (ms_running)
         snprintf(out, out_size, "Microsoft (BthA2dp)");
     else if (alt_running)

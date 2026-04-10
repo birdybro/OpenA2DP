@@ -1472,13 +1472,13 @@ void oa2dp_panels_draw(OA2DP_UIState *ui)
                                             stack_label, sizeof(stack_label));
             igText("Active A2DP stack:");
             igSameLine(0, 6);
+            /* Order matters: "Alternative ... (Microsoft also loaded)"
+             * must match Alternative first, not Microsoft. */
             ImVec4_c col;
-            if (strstr(stack_label, "Microsoft")) {
-                col.x = 0.4f; col.y = 0.7f; col.z = 1.0f; col.w = 1.0f;  /* blue */
-            } else if (strstr(stack_label, "Alternative")) {
+            if (strstr(stack_label, "Alternative")) {
                 col.x = 0.3f; col.y = 0.9f; col.z = 0.5f; col.w = 1.0f;  /* green */
-            } else if (strstr(stack_label, "Multiple")) {
-                col.x = 1.0f; col.y = 0.8f; col.z = 0.0f; col.w = 1.0f;  /* yellow */
+            } else if (strstr(stack_label, "Microsoft")) {
+                col.x = 0.4f; col.y = 0.7f; col.z = 1.0f; col.w = 1.0f;  /* blue */
             } else {
                 col.x = 1.0f; col.y = 0.4f; col.z = 0.4f; col.w = 1.0f;  /* red */
             }
