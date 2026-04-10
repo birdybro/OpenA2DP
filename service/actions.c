@@ -12,6 +12,7 @@
 #include <bluetoothapis.h>
 #include <bthdef.h>
 #include <initguid.h>
+#include <mmsystem.h>
 
 #include "oa2dp_actions.h"
 #include "oa2dp_log.h"
@@ -308,4 +309,32 @@ int oa2dp_action_set_audiosink_async(const char *device_id, int enable)
 int oa2dp_action_set_handsfree_async(const char *device_id, int enable)
 {
     return launch_async(device_id, ACT_SET_HANDSFREE, enable);
+}
+
+/* ── Test sound ─────────────────────────────────────────────────────
+ *
+ * Plays %WINDIR%\Media\tada.wav through the default audio endpoint
+ * via PlaySound's SND_FILENAME mode.  ASYNC so the call returns
+ * immediately, NODEFAULT so PlaySound doesn't fall back to the
+ * generic system beep if the file is missing for some reason.
+ * tada.wav has shipped with every Windows release since 95 and is
+ * still present on Win11 for backward compat.
+ */
+void oa2dp_action_play_test_sound(void)
+{
+    char path[MAX_PATH];
+    UINT n = GetWindowsDirectoryA(path, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH - 16) {
+        oa2dp_log(OA2DP_LOG_WARN, "test sound: GetWindowsDirectoryA failed");
+        return;
+    }
+    snprintf(path + n, MAX_PATH - n, "\\Media\\tada.wav");
+
+    if (!PlaySoundA(path, NULL,
+                    SND_FILENAME | SND_ASYNC | SND_NODEFAULT)) {
+        oa2dp_log(OA2DP_LOG_WARN,
+                  "test sound: PlaySound('%s') failed", path);
+        return;
+    }
+    oa2dp_log(OA2DP_LOG_INFO, "test sound: playing '%s'", path);
 }

@@ -561,7 +561,7 @@ static void draw_settings(OA2DP_UIState *ui)
     igText("Profile: %s", p->display_name);
     igSeparator();
 
-    /* ── Simple mode: just Reconnect / Reset, nothing else. ──────── */
+    /* ── Simple mode: just Reconnect / Reset / Test Audio. ───────── */
     if (!ui->advanced_mode) {
         int busy = oa2dp_action_busy();
         if (busy) igBeginDisabled(true);
@@ -578,6 +578,16 @@ static void draw_settings(OA2DP_UIState *ui)
             igSameLine(0, 8);
             igText("Working...");
         }
+
+        /* Test Audio button is independent of action_busy — it's
+         * just a local PlaySound call, never touches Bluetooth. */
+        igDummy((ImVec2_c){0, 4});
+        if (igButton("Test Audio", btn))
+            oa2dp_action_play_test_sound();
+        hover_help(
+            "Plays a short Windows sound through the default audio "
+            "endpoint so you can confirm your Bluetooth device is "
+            "actually receiving and playing audio.");
 
         igDummy((ImVec2_c){0, 6});
         igTextWrapped(
@@ -947,6 +957,15 @@ static void draw_settings(OA2DP_UIState *ui)
             igSameLine(0, 8);
             igText("Working...");
         }
+
+        /* Test Audio is independent of the busy flag. */
+        igSameLine(0, 8);
+        if (igButton("Test Audio", btn))
+            oa2dp_action_play_test_sound();
+        hover_help(
+            "Plays a short Windows sound through the default audio "
+            "endpoint so you can confirm your Bluetooth device is "
+            "actually receiving and playing audio.");
     }
 
     igSeparator();

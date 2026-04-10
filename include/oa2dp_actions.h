@@ -51,6 +51,14 @@ int oa2dp_action_busy(void);
 int oa2dp_action_set_audiosink_async(const char *device_id, int enable);
 int oa2dp_action_set_handsfree_async(const char *device_id, int enable);
 
+/*
+ * Play a short Windows system sound (`%WINDIR%\Media\tada.wav`)
+ * through the default audio endpoint.  Used by the "Test Audio"
+ * button as a quick way to verify a Bluetooth device is actually
+ * routing audio.  Fire-and-forget, async, never blocks.
+ */
+void oa2dp_action_play_test_sound(void);
+
 #ifdef __cplusplus
 }
 #endif
