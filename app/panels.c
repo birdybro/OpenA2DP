@@ -18,6 +18,7 @@
 #include "oa2dp_config.h"
 #include "oa2dp_actions.h"
 #include "oa2dp_altdriver_config.h"
+#include "oa2dp_audio_status.h"
 #include "oa2dp_audio_visualizer.h"
 #include "oa2dp_driver_control.h"
 #include "oa2dp_history.h"
@@ -422,7 +423,7 @@ static void draw_device_list(OA2DP_UIState *ui)
                 "This clears codec settings, watchdog opt-ins, and the "
                 "bitpool override flag for all paired devices, then "
                 "writes the defaults back to disk. The main window will "
-                "also resize to its default 1440x900.");
+                "also resize to its default 1541x1010.");
             igDummy((ImVec2_c){0, 4});
             igTextDisabled(
                 "Connection history is not affected.");
@@ -579,8 +580,8 @@ static void draw_settings(OA2DP_UIState *ui)
             igText("Working...");
         }
 
-        /* Test Audio button is independent of action_busy — it's
-         * just a local PlaySound call, never touches Bluetooth. */
+        /* Test Audio + Set Default are independent of action_busy —
+         * neither touches Bluetooth APIs. */
         igDummy((ImVec2_c){0, 4});
         if (igButton("Test Audio", btn))
             oa2dp_action_play_test_sound();
@@ -588,6 +589,14 @@ static void draw_settings(OA2DP_UIState *ui)
             "Plays a short Windows sound through the default audio "
             "endpoint so you can confirm your Bluetooth device is "
             "actually receiving and playing audio.");
+        igSameLine(0, 8);
+        if (igButton("Set as Default", btn))
+            oa2dp_audio_set_default_endpoint(p->device_id, p->display_name);
+        hover_help(
+            "Set this Bluetooth device as the system default audio "
+            "endpoint for all roles (Console, Multimedia, "
+            "Communications). Same effect as picking it in Sound "
+            "Settings, just one click.");
 
         igDummy((ImVec2_c){0, 6});
         igTextWrapped(
@@ -958,7 +967,7 @@ static void draw_settings(OA2DP_UIState *ui)
             igText("Working...");
         }
 
-        /* Test Audio is independent of the busy flag. */
+        /* Test Audio + Set Default are independent of the busy flag. */
         igSameLine(0, 8);
         if (igButton("Test Audio", btn))
             oa2dp_action_play_test_sound();
@@ -966,6 +975,14 @@ static void draw_settings(OA2DP_UIState *ui)
             "Plays a short Windows sound through the default audio "
             "endpoint so you can confirm your Bluetooth device is "
             "actually receiving and playing audio.");
+        igSameLine(0, 8);
+        if (igButton("Set as Default", btn))
+            oa2dp_audio_set_default_endpoint(p->device_id, p->display_name);
+        hover_help(
+            "Set this Bluetooth device as the system default audio "
+            "endpoint for all roles (Console, Multimedia, "
+            "Communications). Same effect as picking it in Sound "
+            "Settings, just one click.");
     }
 
     igSeparator();

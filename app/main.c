@@ -293,7 +293,7 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
         oa2dp_log(OA2DP_LOG_WARN, "config init failed, profiles will not persist");
 
     /* Restore previous window placement if available. */
-    int win_x = 100, win_y = 100, win_w = 1440, win_h = 900;
+    int win_x = 100, win_y = 100, win_w = 1541, win_h = 1010;
     int loaded_advanced = 0;
     oa2dp_window_state_load(&win_x, &win_y, &win_w, &win_h, &loaded_advanced);
 
@@ -436,7 +436,7 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
         if (g_ui.pending_window_reset) {
             g_ui.pending_window_reset = 0;
             SetWindowPos(hwnd, NULL,
-                         100, 100, 1440, 900,
+                         100, 100, 1541, 1010,
                          SWP_NOZORDER | SWP_NOACTIVATE);
         }
     }
