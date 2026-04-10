@@ -5,6 +5,11 @@
  * log.c - In-memory ring buffer logging
  */
 
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+
 #include "oa2dp_log.h"
 
 #include <stdarg.h>
@@ -13,14 +18,18 @@
 #include <time.h>
 
 static OA2DP_LogBuffer g_log;
+static CRITICAL_SECTION g_log_cs;
 
 void oa2dp_log_init(void)
 {
+    InitializeCriticalSection(&g_log_cs);
     memset(&g_log, 0, sizeof(g_log));
 }
 
 void oa2dp_log(OA2DP_LogLevel level, const char *fmt, ...)
 {
+    EnterCriticalSection(&g_log_cs);
+
     OA2DP_LogEntry *entry = &g_log.entries[g_log.head];
 
     entry->timestamp = time(NULL);
@@ -34,12 +43,16 @@ void oa2dp_log(OA2DP_LogLevel level, const char *fmt, ...)
     g_log.head = (g_log.head + 1) % OA2DP_LOG_RING_SIZE;
     if (g_log.count < OA2DP_LOG_RING_SIZE)
         g_log.count++;
+
+    LeaveCriticalSection(&g_log_cs);
 }
 
 void oa2dp_log_clear(void)
 {
+    EnterCriticalSection(&g_log_cs);
     g_log.head = 0;
     g_log.count = 0;
+    LeaveCriticalSection(&g_log_cs);
 }
 
 const OA2DP_LogBuffer *oa2dp_log_get_buffer(void)
