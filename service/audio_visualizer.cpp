@@ -103,6 +103,92 @@ static void compute_bands(const float *samples, int n, int sample_rate,
 
 /* ── capture thread ─────────────────────────────────────────────── */
 
+/*
+ * Acquire and start a fresh WASAPI loopback capture against the
+ * current default render endpoint.  All four out parameters are
+ * set on success; the WAVEFORMATEX is owned by the caller and
+ * must be freed with CoTaskMemFree.  Returns 0 on success, -1 on
+ * failure (in which case nothing is left to clean up).
+ */
+static int loopback_acquire(IMMDeviceEnumerator **out_enum,
+                            IMMDevice           **out_device,
+                            IAudioClient        **out_client,
+                            IAudioCaptureClient **out_capture,
+                            WAVEFORMATEX        **out_fmt)
+{
+    *out_enum = NULL; *out_device = NULL; *out_client = NULL;
+    *out_capture = NULL; *out_fmt = NULL;
+
+    IMMDeviceEnumerator *enumerator = NULL;
+    IMMDevice           *device     = NULL;
+    IAudioClient        *client     = NULL;
+    IAudioCaptureClient *capture    = NULL;
+    WAVEFORMATEX        *fmt        = NULL;
+
+    HRESULT hr = CoCreateInstance(
+        __uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL,
+        __uuidof(IMMDeviceEnumerator), (void **)&enumerator);
+    if (FAILED(hr)) goto fail;
+
+    hr = enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device);
+    if (FAILED(hr)) goto fail;
+
+    hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, NULL,
+                          (void **)&client);
+    if (FAILED(hr)) goto fail;
+
+    hr = client->GetMixFormat(&fmt);
+    if (FAILED(hr) || !fmt) goto fail;
+
+    if (fmt->wBitsPerSample != 32) {
+        oa2dp_log(OA2DP_LOG_WARN,
+                  "visualizer: unsupported sample format (%u-bit)",
+                  fmt->wBitsPerSample);
+        goto fail;
+    }
+
+    hr = client->Initialize(AUDCLNT_SHAREMODE_SHARED,
+                             AUDCLNT_STREAMFLAGS_LOOPBACK,
+                             10000000, /* 1s buffer */
+                             0, fmt, NULL);
+    if (FAILED(hr)) goto fail;
+
+    hr = client->GetService(__uuidof(IAudioCaptureClient), (void **)&capture);
+    if (FAILED(hr)) goto fail;
+
+    hr = client->Start();
+    if (FAILED(hr)) goto fail;
+
+    *out_enum    = enumerator;
+    *out_device  = device;
+    *out_client  = client;
+    *out_capture = capture;
+    *out_fmt     = fmt;
+    return 0;
+
+fail:
+    if (capture)    capture->Release();
+    if (client)     client->Release();
+    if (fmt)        CoTaskMemFree(fmt);
+    if (device)     device->Release();
+    if (enumerator) enumerator->Release();
+    return -1;
+}
+
+static void loopback_release(IMMDeviceEnumerator *enumerator,
+                             IMMDevice           *device,
+                             IAudioClient        *client,
+                             IAudioCaptureClient *capture,
+                             WAVEFORMATEX        *fmt)
+{
+    if (client)     client->Stop();
+    if (capture)    capture->Release();
+    if (client)     client->Release();
+    if (fmt)        CoTaskMemFree(fmt);
+    if (device)     device->Release();
+    if (enumerator) enumerator->Release();
+}
+
 static DWORD WINAPI capture_thread(LPVOID)
 {
     HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
@@ -112,150 +198,178 @@ static DWORD WINAPI capture_thread(LPVOID)
         return 1;
     }
 
-    IMMDeviceEnumerator *enumerator = NULL;
-    IMMDevice           *device     = NULL;
-    IAudioClient        *client     = NULL;
-    IAudioCaptureClient *capture    = NULL;
-    WAVEFORMATEX        *fmt        = NULL;
-    static float         mono_buf[16384];
+    static float mono_buf[16384];
 
-    hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL,
-                          __uuidof(IMMDeviceEnumerator), (void **)&enumerator);
-    if (FAILED(hr)) goto cleanup;
-
-    hr = enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device);
-    if (FAILED(hr)) goto cleanup;
-
-    hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, NULL,
-                          (void **)&client);
-    if (FAILED(hr)) goto cleanup;
-
-    hr = client->GetMixFormat(&fmt);
-    if (FAILED(hr) || !fmt) goto cleanup;
-
-    /* WASAPI shared-mode mix format is essentially always 32-bit
-     * float; bail clearly if we ever see something different rather
-     * than reading garbage. */
-    if (fmt->wBitsPerSample != 32) {
-        oa2dp_log(OA2DP_LOG_WARN,
-                  "visualizer: unsupported sample format (%u-bit)",
-                  fmt->wBitsPerSample);
-        goto cleanup;
-    }
-
-    hr = client->Initialize(AUDCLNT_SHAREMODE_SHARED,
-                             AUDCLNT_STREAMFLAGS_LOOPBACK,
-                             10000000, /* 1s buffer */
-                             0, fmt, NULL);
-    if (FAILED(hr)) goto cleanup;
-
-    hr = client->GetService(__uuidof(IAudioCaptureClient), (void **)&capture);
-    if (FAILED(hr)) goto cleanup;
-
-    hr = client->Start();
-    if (FAILED(hr)) goto cleanup;
-
-    oa2dp_log(OA2DP_LOG_INFO,
-              "visualizer: loopback capture started (%lu Hz, %u channels)",
-              (unsigned long)fmt->nSamplesPerSec, (unsigned)fmt->nChannels);
-
+    /* Outer reconnect loop.  Each iteration acquires a fresh
+     * loopback capture against the current default render endpoint
+     * and runs the inner capture loop until something fails.  When
+     * the inner loop breaks (typically AUDCLNT_E_DEVICE_INVALIDATED
+     * after a reconnect cycle changes the default endpoint), we
+     * release everything and re-acquire — so the visualizer
+     * recovers automatically without restarting the app. */
     while (InterlockedCompareExchange(&g_running, 1, 1) == 1) {
-        UINT32 packet_size = 0;
-        hr = capture->GetNextPacketSize(&packet_size);
-        if (FAILED(hr)) break;
+        IMMDeviceEnumerator *enumerator = NULL;
+        IMMDevice           *device     = NULL;
+        IAudioClient        *client     = NULL;
+        IAudioCaptureClient *capture    = NULL;
+        WAVEFORMATEX        *fmt        = NULL;
 
-        if (packet_size == 0) {
-            Sleep(20);
-            /* No data this tick — decay the displayed bands so they
-             * fall back to zero when audio stops. */
-            EnterCriticalSection(&g_lock);
-            for (int b = 0; b < OA2DP_VIS_BANDS; b++)
-                g_bands[b] *= 0.75f;
-            LeaveCriticalSection(&g_lock);
+        if (loopback_acquire(&enumerator, &device, &client,
+                             &capture, &fmt) != 0) {
+            /* No default endpoint right now (e.g. no audio device
+             * is connected at all).  Wait a bit and retry. */
+            Sleep(1000);
             continue;
         }
 
-        BYTE   *data   = NULL;
-        UINT32  frames = 0;
-        DWORD   flags  = 0;
-        hr = capture->GetBuffer(&data, &frames, &flags, NULL, NULL);
-        if (FAILED(hr)) break;
+        /* Cache the endpoint ID we just bound to, so we can detect
+         * the default render endpoint silently changing under us
+         * (which doesn't trigger any WASAPI error — the old handle
+         * just sits there returning zero packets indefinitely). */
+        LPWSTR bound_endpoint_id = NULL;
+        device->GetId(&bound_endpoint_id);
+        DWORD last_default_check = GetTickCount();
+        const DWORD DEFAULT_CHECK_INTERVAL_MS = 1000;
 
-        int n = (int)frames;
-        if (n > (int)(sizeof(mono_buf) / sizeof(mono_buf[0])))
-            n = (int)(sizeof(mono_buf) / sizeof(mono_buf[0]));
+        oa2dp_log(OA2DP_LOG_INFO,
+                  "visualizer: loopback capture started (%lu Hz, %u channels)",
+                  (unsigned long)fmt->nSamplesPerSec,
+                  (unsigned)fmt->nChannels);
 
-        const float *src = (const float *)data;
-        int ch = fmt->nChannels;
-        float inv_ch = 1.0f / (float)ch;
-
-        if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
-            for (int i = 0; i < n; i++) mono_buf[i] = 0.0f;
-        } else {
-            for (int i = 0; i < n; i++) {
-                float sum = 0.0f;
-                for (int c = 0; c < ch; c++)
-                    sum += src[i * ch + c];
-                mono_buf[i] = sum * inv_ch;
+        /* Inner capture loop. */
+        bool default_changed = false;
+        while (InterlockedCompareExchange(&g_running, 1, 1) == 1) {
+            /* Periodically check if the system default render
+             * endpoint has changed.  If it has, the audio our
+             * loopback was capturing has been re-routed and we
+             * need to re-acquire against the new default. */
+            DWORD now = GetTickCount();
+            if (bound_endpoint_id &&
+                now - last_default_check >= DEFAULT_CHECK_INTERVAL_MS) {
+                last_default_check = now;
+                IMMDevice *cur = NULL;
+                if (SUCCEEDED(enumerator->GetDefaultAudioEndpoint(
+                        eRender, eConsole, &cur)) && cur) {
+                    LPWSTR cur_id = NULL;
+                    if (SUCCEEDED(cur->GetId(&cur_id)) && cur_id) {
+                        if (wcscmp(cur_id, bound_endpoint_id) != 0) {
+                            oa2dp_log(OA2DP_LOG_INFO,
+                                "visualizer: default render endpoint "
+                                "changed, re-acquiring");
+                            default_changed = true;
+                        }
+                        CoTaskMemFree(cur_id);
+                    }
+                    cur->Release();
+                }
+                if (default_changed) break;
             }
+
+            UINT32 packet_size = 0;
+            hr = capture->GetNextPacketSize(&packet_size);
+            if (FAILED(hr)) {
+                oa2dp_log(OA2DP_LOG_INFO,
+                    "visualizer: GetNextPacketSize failed (0x%08x), "
+                    "re-acquiring", (unsigned)hr);
+                break;
+            }
+
+            if (packet_size == 0) {
+                Sleep(20);
+                /* Decay the displayed bands while idle so they
+                 * fall back to zero when audio stops. */
+                EnterCriticalSection(&g_lock);
+                for (int b = 0; b < OA2DP_VIS_BANDS; b++)
+                    g_bands[b] *= 0.75f;
+                LeaveCriticalSection(&g_lock);
+                continue;
+            }
+
+            BYTE   *data   = NULL;
+            UINT32  frames = 0;
+            DWORD   flags  = 0;
+            hr = capture->GetBuffer(&data, &frames, &flags, NULL, NULL);
+            if (FAILED(hr)) {
+                oa2dp_log(OA2DP_LOG_INFO,
+                    "visualizer: GetBuffer failed (0x%08x), re-acquiring",
+                    (unsigned)hr);
+                break;
+            }
+
+            int n = (int)frames;
+            if (n > (int)(sizeof(mono_buf) / sizeof(mono_buf[0])))
+                n = (int)(sizeof(mono_buf) / sizeof(mono_buf[0]));
+
+            const float *src = (const float *)data;
+            int ch = fmt->nChannels;
+            float inv_ch = 1.0f / (float)ch;
+
+            if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
+                for (int i = 0; i < n; i++) mono_buf[i] = 0.0f;
+            } else {
+                for (int i = 0; i < n; i++) {
+                    float sum = 0.0f;
+                    for (int c = 0; c < ch; c++)
+                        sum += src[i * ch + c];
+                    mono_buf[i] = sum * inv_ch;
+                }
+            }
+
+            capture->ReleaseBuffer(frames);
+
+            float new_bands[OA2DP_VIS_BANDS];
+            compute_bands(mono_buf, n, (int)fmt->nSamplesPerSec, new_bands);
+
+            /* One lock acquire updates BOTH the band envelope and
+             * the raw L/R sample ring buffer. */
+            EnterCriticalSection(&g_lock);
+
+            for (int b = 0; b < OA2DP_VIS_BANDS; b++) {
+                if (new_bands[b] > g_bands[b])
+                    g_bands[b] = new_bands[b];
+                else
+                    g_bands[b] = g_bands[b] * 0.85f + new_bands[b] * 0.15f;
+            }
+
+            if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
+                for (int i = 0; i < n; i++) {
+                    int slot = g_samples_head;
+                    g_samples_l[slot] = 0.0f;
+                    g_samples_r[slot] = 0.0f;
+                    g_samples_head = (g_samples_head + 1) % VIS_SAMPLE_RING;
+                    if (g_samples_count < VIS_SAMPLE_RING) g_samples_count++;
+                }
+            } else {
+                for (int i = 0; i < n; i++) {
+                    float l = (ch >= 1) ? src[i * ch + 0] : 0.0f;
+                    float r = (ch >= 2) ? src[i * ch + 1] : l;
+                    int slot = g_samples_head;
+                    g_samples_l[slot] = l;
+                    g_samples_r[slot] = r;
+                    g_samples_head = (g_samples_head + 1) % VIS_SAMPLE_RING;
+                    if (g_samples_count < VIS_SAMPLE_RING) g_samples_count++;
+                }
+            }
+
+            LeaveCriticalSection(&g_lock);
         }
 
-        capture->ReleaseBuffer(frames);
+        /* Inner loop exited — either the worker is shutting down,
+         * WASAPI invalidated our handles, or the default endpoint
+         * changed.  Tear down and either exit (shutdown) or
+         * re-acquire. */
+        if (bound_endpoint_id) CoTaskMemFree(bound_endpoint_id);
+        loopback_release(enumerator, device, client, capture, fmt);
 
-        float new_bands[OA2DP_VIS_BANDS];
-        compute_bands(mono_buf, n, (int)fmt->nSamplesPerSec, new_bands);
+        if (InterlockedCompareExchange(&g_running, 1, 1) != 1)
+            break;
 
-        /* One lock acquire updates BOTH the band envelope and the
-         * raw L/R sample ring buffer used by oscilloscope and
-         * vectorscope modes.  Doing it together is cheaper than
-         * two separate sections and keeps band+sample state in
-         * sync from a UI snapshot perspective. */
-        EnterCriticalSection(&g_lock);
-
-        /* Peak-hold + decay band smoothing — rises instantly to a
-         * new peak but falls smoothly so the bars don't flicker. */
-        for (int b = 0; b < OA2DP_VIS_BANDS; b++) {
-            if (new_bands[b] > g_bands[b])
-                g_bands[b] = new_bands[b];
-            else
-                g_bands[b] = g_bands[b] * 0.85f + new_bands[b] * 0.15f;
-        }
-
-        /* Push the new L/R samples into the ring.  For mono input
-         * we duplicate L into R; for >2 channels we just take the
-         * first two as left/right. */
-        if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
-            for (int i = 0; i < n; i++) {
-                int slot = g_samples_head;
-                g_samples_l[slot] = 0.0f;
-                g_samples_r[slot] = 0.0f;
-                g_samples_head = (g_samples_head + 1) % VIS_SAMPLE_RING;
-                if (g_samples_count < VIS_SAMPLE_RING) g_samples_count++;
-            }
-        } else {
-            for (int i = 0; i < n; i++) {
-                float l = (ch >= 1) ? src[i * ch + 0] : 0.0f;
-                float r = (ch >= 2) ? src[i * ch + 1] : l;
-                int slot = g_samples_head;
-                g_samples_l[slot] = l;
-                g_samples_r[slot] = r;
-                g_samples_head = (g_samples_head + 1) % VIS_SAMPLE_RING;
-                if (g_samples_count < VIS_SAMPLE_RING) g_samples_count++;
-            }
-        }
-
-        LeaveCriticalSection(&g_lock);
+        /* Brief delay before retry to avoid hot-spinning if the
+         * default endpoint is briefly unavailable mid-reconnect. */
+        Sleep(300);
     }
 
-    if (client) client->Stop();
     oa2dp_log(OA2DP_LOG_INFO, "visualizer: capture stopped");
-
-cleanup:
-    if (capture)    capture->Release();
-    if (client)     client->Release();
-    if (fmt)        CoTaskMemFree(fmt);
-    if (device)     device->Release();
-    if (enumerator) enumerator->Release();
     CoUninitialize();
     return 0;
 }
