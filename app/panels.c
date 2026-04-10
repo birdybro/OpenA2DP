@@ -168,32 +168,85 @@ static void draw_drivers_section(OA2DP_UIState *ui)
     int elevated = oa2dp_process_is_elevated();
     int switching = oa2dp_stack_switch_busy();
 
+    /* AltA2DP isn't shipped with Windows — only present if the user
+     * installed it from bluetoothgoodies.com.  Detect by looking for
+     * any service in the list whose name doesn't start with "btha2dp"
+     * (case-insensitive). */
+    int alt_installed = 0;
+    for (int i = 0; i < ui->drivers.count; i++) {
+        const char *n = ui->drivers.services[i].name;
+        if (!n) continue;
+        char head[8] = {0};
+        for (int k = 0; k < 7 && n[k]; k++) {
+            char c = n[k];
+            if (c >= 'A' && c <= 'Z') c += 32;
+            head[k] = c;
+        }
+        if (strcmp(head, "btha2dp") != 0) {
+            alt_installed = 1;
+            break;
+        }
+    }
+
     /* One-click stack switcher.  Buttons just request a confirm
      * dialog; the actual switch fires from the popup body so the
      * user has to explicitly say yes — switching kicks audio out
      * for ~30 seconds, easy to mis-click. */
     {
-        bool can_switch = elevated && !switching;
-        if (!can_switch) igBeginDisabled(true);
+        bool ms_can_switch  = elevated && !switching;
+        bool alt_can_switch = elevated && !switching && alt_installed;
 
         ImVec2_c btn = { 130, 0 };
         static int pending_target = -1; /* -1 = none, else OA2DP_StackTarget */
+
+        if (!ms_can_switch) igBeginDisabled(true);
         if (igButton("Use Microsoft", btn)) {
             pending_target = OA2DP_STACK_MICROSOFT;
             igOpenPopup_Str("##confirm_stack_switch", 0);
         }
+        if (!ms_can_switch) igEndDisabled();
+
         igSameLine(0, 4);
-        if (igButton("Use Alternative", btn)) {
+
+        if (!alt_can_switch) igBeginDisabled(true);
+        if (igButton("Use AltA2DP", btn)) {
             pending_target = OA2DP_STACK_ALTERNATIVE;
             igOpenPopup_Str("##confirm_stack_switch", 0);
         }
+        if (!alt_can_switch) igEndDisabled();
 
-        if (!can_switch) igEndDisabled();
+        /* Hover-help on the AltA2DP button explains why it's disabled
+         * (or just what it does, when enabled). */
+        if (igIsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            igBeginTooltip();
+            igPushTextWrapPos(360.0f);
+            if (!alt_installed) {
+                igTextUnformatted(
+                    "Alternative A2DP Driver is not installed.  Get it from "
+                    "https://www.bluetoothgoodies.com/ to enable AAC, custom "
+                    "codec settings, and live registry-based tuning.", NULL);
+            } else if (!elevated) {
+                igTextUnformatted(
+                    "Switch the active A2DP stack to Alternative A2DP Driver.  "
+                    "Requires running OpenA2DP as Administrator.", NULL);
+            } else {
+                igTextUnformatted(
+                    "Switch the active A2DP stack to Alternative A2DP Driver.", NULL);
+            }
+            igPopTextWrapPos();
+            igEndTooltip();
+        }
 
         if (switching) {
             igSameLine(0, 8);
             ImVec4_c col = { 1.0f, 0.8f, 0.0f, 1.0f };
             igTextColored(col, "switching...");
+        }
+
+        if (!alt_installed) {
+            ImVec4_c info = { 0.6f, 0.6f, 0.6f, 1.0f };
+            igTextColored(info,
+                "AltA2DP not installed — see bluetoothgoodies.com");
         }
 
         /* Modal confirmation popup. */

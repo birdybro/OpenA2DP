@@ -418,6 +418,20 @@ int oa2dp_driver_stop(const char *service_name)
             CloseServiceHandle(scm);
             return 0;
         }
+        if (err == ERROR_INVALID_SERVICE_CONTROL /* 1052 */) {
+            /* Service refused SERVICE_CONTROL_STOP — almost always a
+             * kernel driver in active use by another part of the
+             * Windows audio/Bluetooth stack.  Not a real failure for
+             * us; the user-mode service that actually routes A2DP
+             * audio is what matters and we stop that separately. */
+            oa2dp_log(OA2DP_LOG_INFO,
+                      "driver control: '%s' is in use and won't stop "
+                      "(harmless — the user-mode service handles the switch)",
+                      service_name);
+            CloseServiceHandle(h);
+            CloseServiceHandle(scm);
+            return 0;
+        }
         log_access_hint("stop", service_name, err);
         CloseServiceHandle(h);
         CloseServiceHandle(scm);
@@ -478,9 +492,15 @@ static void do_stack_switch(OA2DP_StackTarget target,
     oa2dp_log(OA2DP_LOG_INFO, "stack switch: starting → %s", target_name);
     oa2dp_stats_inc_stack_switch();
 
-    /* Step 1: stop services that don't belong to the target. */
+    /* Step 1: stop services that don't belong to the target.
+     * Skip kernel drivers — they refuse SERVICE_CONTROL_STOP while
+     * Windows audio is using them (ERROR_INVALID_SERVICE_CONTROL =
+     * 1052) and we don't actually need to unload them.  The Win32
+     * services that route A2DP audio are what matters. */
     for (int i = 0; i < drivers->count; i++) {
         OA2DP_A2dpService *svc = &drivers->services[i];
+        if (svc->is_driver) continue;
+
         int wants_running =
             (target == OA2DP_STACK_MICROSOFT)
                 ? is_microsoft_service(svc->name)
@@ -492,9 +512,12 @@ static void do_stack_switch(OA2DP_StackTarget target,
         }
     }
 
-    /* Step 2: start services that do belong to the target. */
+    /* Step 2: start services that do belong to the target.  Same
+     * deal — skip kernel drivers, the Win32 services do the work. */
     for (int i = 0; i < drivers->count; i++) {
         OA2DP_A2dpService *svc = &drivers->services[i];
+        if (svc->is_driver) continue;
+
         int wants_running =
             (target == OA2DP_STACK_MICROSOFT)
                 ? is_microsoft_service(svc->name)
