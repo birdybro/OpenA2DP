@@ -15,10 +15,10 @@
 #define OA2DP_VERSION_H
 
 #define OA2DP_VER_MAJOR 0
-#define OA2DP_VER_MINOR 6
+#define OA2DP_VER_MINOR 7
 #define OA2DP_VER_PATCH 0
 #define OA2DP_VER_BUILD 0
 
-#define OA2DP_VER_STRING "0.6.0"
+#define OA2DP_VER_STRING "0.7.0"
 
 #endif /* OA2DP_VERSION_H */

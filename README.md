@@ -21,7 +21,9 @@ Bleeding-edge builds: [Actions tab](https://github.com/birdybro/OpenA2DP/actions
 
 - **Reconnect / Reset** — the 99% workflow: fix a Bluetooth audio device that connected but isn't playing.
 - **Test Audio** — one-click playback of a short Windows system sound (`%WINDIR%\Media\tada.wav`) through the default audio endpoint to confirm your Bluetooth device is actually receiving audio.
-- **Audio visualizer** — live WASAPI-loopback spectrum bars in the bottom-left.
+- **Set as Default** — one-click "make this BT device the system default audio endpoint for all roles (Console, Multimedia, Communications)". Uses the undocumented IPolicyConfig COM interface, same as SoundSwitch / EarTrumpet.
+- **Audio visualizer** — live WASAPI-loopback driven, four modes (cycle by clicking anywhere on it): bars with peak-hold lines, scrolling spectrogram waterfall, oscilloscope, and CRT-style L/R vectorscope. Auto-recovers when the default audio endpoint changes (e.g. after a Reconnect).
+- **Opt-in tray notifications** for auto-heal recovery, low battery (≤20%), HFP fallback (when Windows demotes a device to mono 8/16 kHz voice mode), and new GitHub releases. All gated by a master "Tray Notifications" checkbox in the top-right header. Default off.
 - **Auto-Heal** — optional per-device watchdog for the Windows 11 connect-but-silent bug, with toast notifications.
 - **HFP Watchdog** — optional periodic Handsfree-disable so Windows can't fall back to narrowband mono SCO.
 - **System tray** — right-click menu for Reconnect / Disable HFP / Switch Stack / Show / Quit. Minimizes to tray.

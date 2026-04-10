@@ -8,6 +8,119 @@ versioning loosely follows [SemVer](https://semver.org/).
 
 Nothing yet.
 
+## [0.7.0] — 2026-04-09
+
+The "feature buffet" cycle.  Two new one-click audio actions, a
+spectrum visualizer that grew three more modes, opt-in
+notifications for battery / HFP fallback / new releases, smarter
+A2DP stack control, and a single source of truth for the version
+number.
+
+### Added
+
+- **Set as Default audio endpoint** button in both action rows.
+  Calls the undocumented IPolicyConfig::SetDefaultEndpoint COM
+  interface (same one SoundSwitch / EarTrumpet / NirCmd use) for
+  all three ERoles, snapping the BT device back to default
+  without going through Sound Settings.  Same two-pass endpoint
+  matching as oa2dp_audio_status_query.
+- **Test Audio** button.  Plays %WINDIR%\Media\tada.wav via
+  PlaySoundA(SND_FILENAME | SND_ASYNC) so the user can verify
+  the BT device is actually receiving audio without alt-tabbing
+  to start a song.  Independent of action_busy.
+- **Battery low notifications.**  On every 2-second refresh tick,
+  walks the device list and fires a one-shot tray notification
+  when a connected device drops to or below 20% battery.  5%
+  hysteresis band so a value oscillating around the threshold
+  doesn't re-fire.
+- **HFP fallback detection.**  Detects when the WASAPI mix format
+  collapses to mono at <=16 kHz on a connected device (the
+  unambiguous A2DP→HFP/SCO signature) and tray-notifies "HFP
+  took over: <device> — Audio dropped to <n> Hz mono — voice
+  quality only.  Use Disable HFP or enable HFP Watchdog to fix."
+  Hysteresis: clears when the format goes back above HFP.
+- **GitHub releases update checker.**  New service/update_check.c
+  hits api.github.com/repos/birdybro/OpenA2DP/releases/latest via
+  WinHTTP, parses the latest tag with an ad-hoc string match (no
+  JSON library), compares against the embedded version, and
+  tray-notifies if a newer release exists.  One-shot per process
+  via internal guard, network failure is silent.  Opt-in via
+  the new "Auto Update Check" header checkbox.
+- **Master Tray Notifications toggle.**  oa2dp_tray_notify is
+  gated on a static enable flag set via
+  oa2dp_tray_notifications_set_enabled.  Default OFF — the user
+  opts in via the new "Tray Notifications" checkbox in the top
+  header.  Suppresses every balloon (auto-heal, battery, HFP,
+  update) but leaves the tray icon and right-click menu fully
+  functional.  Persisted in window.ini.
+- **Audio visualizer: spectrogram waterfall mode.**  Scrolling
+  jet-palette heatmap of the last ~512 frames of band data.
+  Same Goertzel data as bars, different render.
+- **Audio visualizer: oscilloscope mode.**  Classic phosphor-green
+  polyline of the (L+R)/2 mono samples scrolling left-to-right.
+- **Audio visualizer: vectorscope mode.**  CRT-style XY scatter of
+  L vs R samples rotated 45 degrees so mono content collapses to
+  a vertical line, drawn as connected line segments with a
+  brightness ramp for the phosphor-trail look.
+- **Audio visualizer: peak-hold marker lines on bars.**  Each bar
+  tracks a per-band peak that rises instantly and decays over
+  ~1.5 seconds, drawn as a 2-px white marker — like every audio
+  plugin level meter.
+- **Audio visualizer: click anywhere to cycle modes.**  Bars →
+  waterfall → oscilloscope → vectorscope → bars.  No buttons.
+- **WASAPI loopback recovery.**  The visualizer's capture worker
+  is now an outer reconnect loop wrapping the inner capture loop.
+  Polls the system default render endpoint ID once per second
+  and re-acquires when it changes — without this, after a
+  Reconnect cycle the loopback handle would silently sit there
+  returning zero packets indefinitely (no WASAPI error fires
+  when the default endpoint changes under you, only when the
+  bound device is fully removed).
+- **Single source of truth for the version number** in
+  include/oa2dp_version.h.  Both .rc files now #include it
+  instead of redefining the macros locally.  Bumping the version
+  is a one-file edit.
+- **L/R sample API on the visualizer worker**
+  (oa2dp_audio_visualizer_get_samples) feeding the new
+  oscilloscope and vectorscope modes.  4096-sample ring buffer
+  written under the same critical section as the band updates.
+
+### Changed
+
+- **Default window size** bumped from 1440x900 to 1541x1010.
+- **Stack switch skips kernel drivers** in both the stop and
+  start loops.  Kernel-mode A2DP drivers (BthA2dp, AltA2DP) refuse
+  SERVICE_CONTROL_STOP while Windows audio is using them and
+  don't actually need to flip during a switch — only the user-mode
+  services do.  Eliminates the spurious 1052 ERROR lines that
+  used to appear in the log every time the user clicked Switch.
+- **oa2dp_driver_stop downgrades ERROR_INVALID_SERVICE_CONTROL**
+  (1052) to an INFO line that explains the kernel driver is in
+  use and that's harmless.  Returns 0 instead of -1 so callers
+  don't treat it as a failure.
+- **Stack inference: when both BthA2dp and AltA2DP are loaded**,
+  the active-stack indicator now reads "Alternative A2DP Driver
+  (Microsoft also loaded)" instead of "Multiple stacks running".
+  AltA2DP's user-mode service intercepts WASAPI before BthA2dp
+  can route audio, so it really is the active stack regardless
+  of whether the BthA2dp kernel driver is still loaded (which it
+  usually is, because Windows refuses to unload it at runtime).
+  The stack indicator color now matches "Alternative" first so
+  the new label renders green.
+- **"Use Alternative" button renamed to "Use AltA2DP"** for
+  consistency with the rest of the UI.  The button now also
+  detects whether the Alternative A2DP Driver is installed
+  (presence of any non-BthA2dp service in the SCM scan) and
+  greys out with a tooltip pointing at bluetoothgoodies.com
+  when it isn't.
+
+### CI
+
+- Workflow-level env `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` to
+  opt all JS-based actions (checkout, upload-artifact, msvc-dev-cmd,
+  action-gh-release) into Node 24 ahead of GitHub's 2026-06-02
+  forced cutover.
+
 ## [0.6.0] — 2026-04-09
 
 The "approachable defaults + eye candy" cycle.  Headline features:
@@ -300,7 +413,8 @@ reconnect/reset actions, INI profile persistence with
 auto-save, and the `docs/driver-evaluation.md` write-up
 deciding to stay in user-mode (no KMDF driver).
 
-[Unreleased]: https://github.com/birdybro/OpenA2DP/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/birdybro/OpenA2DP/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/birdybro/OpenA2DP/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/birdybro/OpenA2DP/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/birdybro/OpenA2DP/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/birdybro/OpenA2DP/compare/v0.3.0...v0.4.0
