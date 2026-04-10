@@ -30,7 +30,7 @@ Bleeding-edge builds: [Actions tab](https://github.com/birdybro/OpenA2DP/actions
 ### Advanced Mode unlocks
 
 - **Live codec settings via [Alternative A2DP Driver](https://www.bluetoothgoodies.com/)** — read+write SBC/AAC parameters in the driver's per-device registry config (codec, sample rates, channel mode, block size, allocation, subbands, AAC bitrate, ABR). Bitpool slider clamped to the device's reported max with an admin-only override.
-- **A2DP stack control** — start/stop A2DP services from the Windows SCM, or one-click switch the entire active stack (Microsoft ↔ Alternative). Needs admin.
+- **A2DP stack control** — start/stop A2DP services from the Windows SCM, or one-click switch the entire active stack (Microsoft ↔ AltA2DP). Needs admin. The "Use AltA2DP" button auto-disables (with a hint pointing at bluetoothgoodies.com) if the Alternative A2DP Driver isn't installed. When both stacks happen to be loaded simultaneously — common because Windows refuses to unload the BthA2dp kernel driver at runtime — the active-stack indicator correctly reports "Alternative A2DP Driver (Microsoft also loaded)" since AltA2DP's user-mode service intercepts WASAPI before BthA2dp can route audio.
 - **Status panel** — sample rate, bit depth, channels, codec bitrate, audio latency, matched WASAPI endpoint, battery, and a Device Capabilities subsection from the driver's `Capability\<addr>` registry subtree.
 - **Bluetooth remote-event tracking** — logs play/pause/next/prev/volume from your headphones via three observation surfaces (low-level keyboard hook, WASAPI default-endpoint volume polling, WinRT SMTC poller).
 - **Per-device manual service toggles** for AudioSink and Handsfree.
@@ -45,7 +45,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full per-version inventory.
 3. Click **Reconnect** if audio is broken, or **Reset** to cycle all audio services.
 4. Optionally enable Auto-Heal (Advanced Mode → Watchdogs).
 5. Right-click the tray icon for quick actions without opening the window.
-6. To switch A2DP stacks, run **as Administrator** and use the Use Microsoft / Use Alternative buttons in Advanced Mode.
+6. To switch A2DP stacks, run **as Administrator** and use the Use Microsoft / Use AltA2DP buttons in Advanced Mode.
 
 ### CLI
 
