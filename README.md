@@ -20,6 +20,7 @@ Bleeding-edge builds: [Actions tab](https://github.com/birdybro/OpenA2DP/actions
 ## Features
 
 - **Reconnect / Reset** — the 99% workflow: fix a Bluetooth audio device that connected but isn't playing.
+- **Test Audio** — one-click playback of a short Windows system sound (`%WINDIR%\Media\tada.wav`) through the default audio endpoint to confirm your Bluetooth device is actually receiving audio.
 - **Audio visualizer** — live WASAPI-loopback spectrum bars in the bottom-left.
 - **Auto-Heal** — optional per-device watchdog for the Windows 11 connect-but-silent bug, with toast notifications.
 - **HFP Watchdog** — optional periodic Handsfree-disable so Windows can't fall back to narrowband mono SCO.
@@ -43,9 +44,10 @@ See [CHANGELOG.md](CHANGELOG.md) for the full per-version inventory.
 1. Pair your Bluetooth audio device in Windows Settings.
 2. Run `OpenA2DP.exe`, select the device on the left.
 3. Click **Reconnect** if audio is broken, or **Reset** to cycle all audio services.
-4. Optionally enable Auto-Heal (Advanced Mode → Watchdogs).
-5. Right-click the tray icon for quick actions without opening the window.
-6. To switch A2DP stacks, run **as Administrator** and use the Use Microsoft / Use AltA2DP buttons in Advanced Mode.
+4. Click **Test Audio** to play a short Windows sound and confirm playback is working.
+5. Optionally enable Auto-Heal (Advanced Mode → Watchdogs).
+6. Right-click the tray icon for quick actions without opening the window.
+7. To switch A2DP stacks, run **as Administrator** and use the Use Microsoft / Use AltA2DP buttons in Advanced Mode.
 
 ### CLI
 
