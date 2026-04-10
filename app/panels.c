@@ -68,31 +68,60 @@ static ImU32 vis_rgba(int r, int g, int b, int a)
            ((ImU32)(r & 0xFF));
 }
 
-/* Draw a WASAPI-loopback spectrum visualizer that fills the
- * available content region of its parent child window.  Reads
- * OA2DP_VIS_BANDS magnitudes from the audio_visualizer worker
- * (each in [0..1]) and renders them as colored bars. */
-static void draw_audio_visualizer(void)
+/* ── Audio visualizer ───────────────────────────────────────────────
+ *
+ * Two render modes: classic frequency bars (default) and a
+ * scrolling spectrogram waterfall.  Click anywhere on the
+ * visualizer to toggle between them — there's no button.
+ *
+ * The waterfall stores the last VIS_HIST_COLS frames of band data
+ * in a flat ring buffer.  Each draw, we walk from oldest to newest
+ * and render a column of N coloured cells per frame.  The history
+ * is updated every frame regardless of mode so that switching
+ * mid-session shows the actual recent past, not a stale snapshot. */
+
+#define VIS_HIST_COLS 512
+
+typedef enum {
+    VIS_MODE_BARS      = 0,
+    VIS_MODE_WATERFALL = 1
+} VisMode;
+
+static VisMode g_vis_mode = VIS_MODE_BARS;
+static float   g_vis_history[VIS_HIST_COLS * OA2DP_VIS_BANDS];
+static int     g_vis_hist_head  = 0;
+static int     g_vis_hist_count = 0;
+
+/* Jet-ish heat palette: black → blue → magenta → red → yellow → white.
+ * Looks like a real spectrogram and contrasts well on the dark
+ * background of the visualizer panel. */
+static void heat_color(float v, int *r, int *g, int *b)
+{
+    if (v < 0.0f) v = 0.0f;
+    if (v > 1.0f) v = 1.0f;
+
+    if (v < 0.25f) {
+        float t = v / 0.25f;
+        *r = 0;                 *g = 0;                 *b = (int)(255.0f * t);
+    } else if (v < 0.5f) {
+        float t = (v - 0.25f) / 0.25f;
+        *r = (int)(255.0f * t); *g = 0;                 *b = 255;
+    } else if (v < 0.75f) {
+        float t = (v - 0.5f) / 0.25f;
+        *r = 255;               *g = (int)(255.0f * t); *b = (int)(255.0f * (1.0f - t));
+    } else {
+        float t = (v - 0.75f) / 0.25f;
+        *r = 255;               *g = 255;               *b = (int)(255.0f * t);
+    }
+}
+
+static void draw_vis_bars(ImDrawList *dl, ImVec2_c p0, ImVec2_c p1,
+                          const float *bands)
 {
     const int   N   = OA2DP_VIS_BANDS;
     const float pad = 4.0f;
     const float gap = 1.0f;
-
-    float bands[OA2DP_VIS_BANDS];
-    oa2dp_audio_visualizer_get_bands(bands, N);
-
-    ImVec2_c avail = igGetContentRegionAvail();
-    float W = avail.x;
-    float H = avail.y;
-    if (W < 1.0f || H < 1.0f) return;
-
-    ImVec2_c p0 = igGetCursorScreenPos();
-    ImVec2_c p1 = { p0.x + W, p0.y + H };
-    ImDrawList *dl = igGetWindowDrawList();
-
-    /* Background panel + 1px border. */
-    ImDrawList_AddRectFilled(dl, p0, p1, vis_rgba(12, 14, 22, 255), 4.0f, 0);
-    ImDrawList_AddRect(dl, p0, p1, vis_rgba(60, 70, 90, 255), 4.0f, 0, 1.0f);
+    float W = p1.x - p0.x;
 
     float bar_w  = (W - pad * 2.0f - gap * (N - 1)) / (float)N;
     float bottom = p1.y - pad;
@@ -110,7 +139,7 @@ static void draw_audio_visualizer(void)
         ImVec2_c b0 = { p0.x + pad + i * (bar_w + gap), bottom - h };
         ImVec2_c b1 = { b0.x + bar_w, bottom };
 
-        /* Color gradient from cyan (low energy) → green → yellow → red. */
+        /* Cyan → green → yellow → red gradient. */
         int r  = (int)(40.0f  + 215.0f * v);
         int g  = (int)(220.0f - 100.0f * v * v);
         int bl = (int)(180.0f * (1.0f - v));
@@ -118,9 +147,93 @@ static void draw_audio_visualizer(void)
 
         ImDrawList_AddRectFilled(dl, b0, b1, col, 1.0f, 0);
     }
+}
 
-    /* Reserve the layout space so the child auto-sizes correctly. */
-    igDummy((ImVec2_c){ W, H });
+static void draw_vis_waterfall(ImDrawList *dl, ImVec2_c p0, ImVec2_c p1)
+{
+    const int   N   = OA2DP_VIS_BANDS;
+    const float pad = 4.0f;
+
+    float W = p1.x - p0.x - pad * 2.0f;
+    float H = p1.y - p0.y - pad * 2.0f;
+    if (W < 1.0f || H < 1.0f) return;
+
+    int max_cols = (int)W;
+    if (max_cols > g_vis_hist_count) max_cols = g_vis_hist_count;
+    if (max_cols > VIS_HIST_COLS)    max_cols = VIS_HIST_COLS;
+    if (max_cols <= 0) return;
+
+    float col_w = W / (float)max_cols;
+    float row_h = H / (float)N;
+
+    for (int c = 0; c < max_cols; c++) {
+        /* Newest is at head-1, walk back max_cols slots. */
+        int slot = (g_vis_hist_head - max_cols + c + VIS_HIST_COLS) % VIS_HIST_COLS;
+        float x0 = p0.x + pad + c * col_w;
+        float x1 = x0 + col_w + 0.6f;  /* sub-pixel overlap to avoid seams */
+
+        for (int b = 0; b < N; b++) {
+            float v = g_vis_history[slot * N + b];
+            int r, g, bl;
+            heat_color(v, &r, &g, &bl);
+
+            /* Low frequencies at the bottom, high at the top —
+             * conventional spectrogram orientation. */
+            float y0 = p0.y + pad + (N - 1 - b) * row_h;
+            float y1 = y0 + row_h + 0.6f;
+
+            ImDrawList_AddRectFilled(dl,
+                (ImVec2_c){ x0, y0 },
+                (ImVec2_c){ x1, y1 },
+                vis_rgba(r, g, bl, 255), 0.0f, 0);
+        }
+    }
+}
+
+/* Draw a WASAPI-loopback spectrum visualizer that fills the
+ * available content region of its parent child window.  Click
+ * anywhere on it to toggle bars ↔ waterfall mode. */
+static void draw_audio_visualizer(void)
+{
+    ImVec2_c avail = igGetContentRegionAvail();
+    if (avail.x < 1.0f || avail.y < 1.0f) return;
+
+    ImVec2_c p0 = igGetCursorScreenPos();
+    ImVec2_c p1 = { p0.x + avail.x, p0.y + avail.y };
+
+    /* Submit a clickable invisible button covering the whole canvas.
+     * This both reserves the layout space and gives us hit-testing. */
+    igInvisibleButton("##visualizer_toggle", avail, 0);
+    if (igIsItemClicked(ImGuiMouseButton_Left)) {
+        g_vis_mode = (g_vis_mode == VIS_MODE_BARS)
+                         ? VIS_MODE_WATERFALL
+                         : VIS_MODE_BARS;
+    }
+
+    /* Pull current bands from the worker and append to the history
+     * ring.  We update on every frame regardless of mode so that
+     * toggling mid-session shows the actual recent past. */
+    float bands[OA2DP_VIS_BANDS];
+    oa2dp_audio_visualizer_get_bands(bands, OA2DP_VIS_BANDS);
+    {
+        int slot = g_vis_hist_head;
+        for (int b = 0; b < OA2DP_VIS_BANDS; b++)
+            g_vis_history[slot * OA2DP_VIS_BANDS + b] = bands[b];
+        g_vis_hist_head = (g_vis_hist_head + 1) % VIS_HIST_COLS;
+        if (g_vis_hist_count < VIS_HIST_COLS) g_vis_hist_count++;
+    }
+
+    ImDrawList *dl = igGetWindowDrawList();
+
+    /* Background panel + 1px border (drawn before contents so the
+     * bars/waterfall sit on top). */
+    ImDrawList_AddRectFilled(dl, p0, p1, vis_rgba(12, 14, 22, 255), 4.0f, 0);
+    ImDrawList_AddRect(dl, p0, p1, vis_rgba(60, 70, 90, 255), 4.0f, 0, 1.0f);
+
+    if (g_vis_mode == VIS_MODE_BARS)
+        draw_vis_bars(dl, p0, p1, bands);
+    else
+        draw_vis_waterfall(dl, p0, p1);
 }
 
 /* Compute the screen-space center of the main host window.  Used to
