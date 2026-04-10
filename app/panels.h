@@ -29,6 +29,18 @@ typedef struct OA2DP_UIState {
      * the 99% workflow.  Persisted alongside window state. */
     int                 advanced_mode;
 
+    /* Auto Update Check opt-in.  When 1, GitHub releases API is
+     * polled once at startup (and once on toggle-on) to compare
+     * the latest tag against this binary's version.  Default 0,
+     * persisted alongside window state. */
+    int                 update_check_enabled;
+
+    /* Master enable for tray balloon notifications (auto-heal
+     * recovery, low battery, update available, etc).  Default 0
+     * — the user opts in via the "Tray Notifications" checkbox.
+     * Persisted alongside window state. */
+    int                 tray_notifications_enabled;
+
     /* Main window HWND, stashed after CreateWindowW so panels can
      * reference it (used by the deferred reset path below). */
     void               *hwnd;

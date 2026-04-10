@@ -94,6 +94,7 @@ set C_SRCS=%C_SRCS% "%SRC_SVC%\driver_control.c"
 set C_SRCS=%C_SRCS% "%SRC_SVC%\device_probe.c"
 set C_SRCS=%C_SRCS% "%SRC_SVC%\registry_probe.c"
 set C_SRCS=%C_SRCS% "%SRC_SVC%\altdriver_config.c"
+set C_SRCS=%C_SRCS% "%SRC_SVC%\update_check.c"
 set C_SRCS=%C_SRCS% "%SRC_APP%\panels.c"
 set C_SRCS=%C_SRCS% "%SRC_APP%\cli.c"
 set C_SRCS=%C_SRCS% "%SRC_APP%\tray.c"
@@ -140,7 +141,7 @@ if %errorlevel% neq 0 (
 :: main.c defines BOTH wWinMain and wmain; the linker pulls in the
 :: appropriate one for each subsystem and the other becomes dead code.
 echo --- Linking GUI binary ---
-set LIBS=d3d11.lib dxgi.lib user32.lib gdi32.lib shell32.lib dwmapi.lib bthprops.lib ole32.lib propsys.lib advapi32.lib setupapi.lib runtimeobject.lib oleaut32.lib winmm.lib
+set LIBS=d3d11.lib dxgi.lib user32.lib gdi32.lib shell32.lib dwmapi.lib bthprops.lib ole32.lib propsys.lib advapi32.lib setupapi.lib runtimeobject.lib oleaut32.lib winmm.lib winhttp.lib
 link /nologo /subsystem:windows /LTCG /OPT:REF /OPT:ICF /INCREMENTAL:NO /out:"%EXE_GUI%" %OUTDIR%\*.obj "%OUTDIR%\version_gui.res" %LIBS%
 if %errorlevel% neq 0 (
     echo GUI link FAILED

@@ -67,9 +67,19 @@ void oa2dp_tray_shutdown(void)
 
 /* ── notifications ──────────────────────────────────────────────────── */
 
+/* Master enable/disable, controlled by the user via the
+ * "Tray Notifications" checkbox.  Default off. */
+static int g_notifications_enabled = 0;
+
+void oa2dp_tray_notifications_set_enabled(int enabled)
+{
+    g_notifications_enabled = enabled ? 1 : 0;
+}
+
 void oa2dp_tray_notify(const char *title, const char *message)
 {
     if (!g_added) return;
+    if (!g_notifications_enabled) return;
     if (!title)   title   = "OpenA2DP";
     if (!message) message = "";
 

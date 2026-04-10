@@ -20,6 +20,7 @@
 #include "oa2dp_altdriver_config.h"
 #include "oa2dp_audio_status.h"
 #include "oa2dp_audio_visualizer.h"
+#include "oa2dp_update_check.h"
 #include "oa2dp_driver_control.h"
 #include "oa2dp_history.h"
 #include "oa2dp_stats.h"
@@ -1525,20 +1526,60 @@ void oa2dp_panels_draw(OA2DP_UIState *ui)
             igDummy((ImVec2_c){1, 1});
         }
 
-        /* Pin "Advanced Mode" checkbox to the right edge.  Compute
-         * its width from the label + checkbox glyph + style padding,
-         * then SameLine to (cursor_x_now + remaining_avail - box_w). */
-        ImVec2_c text_size = igCalcTextSize("Advanced Mode", NULL, false, -1.0f);
+        /* Pin the right-side checkboxes (Tray Notifications, Auto
+         * Update Check, Advanced Mode) to the right edge.  Compute
+         * combined width from each label + checkbox glyph + style
+         * padding + inter-checkbox gaps. */
+        ImVec2_c tray_text = igCalcTextSize("Tray Notifications", NULL, false, -1.0f);
+        ImVec2_c upd_text  = igCalcTextSize("Auto Update Check", NULL, false, -1.0f);
+        ImVec2_c adv_text  = igCalcTextSize("Advanced Mode", NULL, false, -1.0f);
         ImGuiStyle *style = igGetStyle();
-        float box_w = text_size.x
-                    + igGetFrameHeight()           /* the check square */
-                    + style->ItemInnerSpacing.x    /* gap between them */
-                    + style->FramePadding.x * 2.0f;
+        float frame_h = igGetFrameHeight();
+        float pad     = style->FramePadding.x * 2.0f;
+        float inner   = style->ItemInnerSpacing.x;
+        float gap_x   = 16.0f;
+
+        float tray_w  = tray_text.x + frame_h + inner + pad;
+        float upd_w   = upd_text.x  + frame_h + inner + pad;
+        float adv_w   = adv_text.x  + frame_h + inner + pad;
+        float total_w = tray_w + gap_x + upd_w + gap_x + adv_w;
+
         ImVec2_c avail = igGetContentRegionAvail();
         float cursor_x = igGetCursorPosX();
-        float target_x = cursor_x + avail.x - box_w;
+        float target_x = cursor_x + avail.x - total_w;
         if (target_x < cursor_x) target_x = cursor_x;
         igSameLine(target_x, 0);
+
+        /* Tray Notifications checkbox — master toggle for all tray
+         * balloon notifications (auto-heal, low battery, update
+         * available, etc).  Routed through the tray module. */
+        bool tray = (bool)ui->tray_notifications_enabled;
+        if (igCheckbox("Tray Notifications", &tray)) {
+            ui->tray_notifications_enabled = tray ? 1 : 0;
+            oa2dp_tray_notifications_set_enabled(ui->tray_notifications_enabled);
+        }
+        hover_help(
+            "Master toggle for Windows tray balloon notifications. When "
+            "off, OpenA2DP never pops a notification (auto-heal recoveries, "
+            "low battery warnings, update-available alerts, etc). The tray "
+            "icon and right-click menu still work. Off by default.");
+
+        igSameLine(0, gap_x);
+
+        /* Auto Update Check checkbox.  Toggling on fires a one-shot
+         * GitHub releases query (subsequent calls within the same
+         * session are no-ops via the module's internal guard). */
+        bool upd = (bool)ui->update_check_enabled;
+        if (igCheckbox("Auto Update Check", &upd)) {
+            ui->update_check_enabled = upd ? 1 : 0;
+            if (upd) oa2dp_update_check_async();
+        }
+        hover_help(
+            "Once per session, query the GitHub releases API and post a "
+            "tray notification if a newer version of OpenA2DP is "
+            "available. Network failure is silent. Off by default.");
+
+        igSameLine(0, gap_x);
 
         bool adv = (bool)ui->advanced_mode;
         if (igCheckbox("Advanced Mode", &adv))

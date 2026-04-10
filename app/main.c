@@ -34,6 +34,7 @@
 #include "oa2dp_resource.h"
 #include "oa2dp_stats.h"
 #include "oa2dp_tray.h"
+#include "oa2dp_update_check.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -99,6 +100,84 @@ static void save_dirty_profiles(void)
     snapshot_profiles();
 }
 
+/* ── Battery low notifications ──────────────────────────────────────
+ *
+ * On every refresh tick we walk the connected device list and fire
+ * a one-shot tray balloon when battery_pct drops at or below the
+ * threshold.  Hysteresis: the per-address "warned" flag is cleared
+ * only when the device comes back above (threshold + 5) so a value
+ * fluctuating around the boundary (19/21/19/21) doesn't re-fire.
+ */
+#define BATTERY_LOW_THRESHOLD     20
+#define BATTERY_HYSTERESIS_BAND   5
+
+static char g_battery_warned[OA2DP_MAX_DEVICES][32];
+static int  g_battery_warned_count = 0;
+
+static int battery_warned(const char *addr)
+{
+    for (int i = 0; i < g_battery_warned_count; i++)
+        if (strcmp(g_battery_warned[i], addr) == 0) return 1;
+    return 0;
+}
+
+static void mark_battery_warned(const char *addr)
+{
+    if (g_battery_warned_count >= OA2DP_MAX_DEVICES) return;
+    snprintf(g_battery_warned[g_battery_warned_count], 32, "%s", addr);
+    g_battery_warned_count++;
+}
+
+static void clear_battery_warned(const char *addr)
+{
+    for (int i = 0; i < g_battery_warned_count; i++) {
+        if (strcmp(g_battery_warned[i], addr) == 0) {
+            for (int j = i; j < g_battery_warned_count - 1; j++)
+                memcpy(g_battery_warned[j], g_battery_warned[j + 1], 32);
+            g_battery_warned_count--;
+            return;
+        }
+    }
+}
+
+static void check_battery_warnings(void)
+{
+    for (int i = 0; i < g_ui.devices.count; i++) {
+        const OA2DP_DeviceProfile *p = &g_ui.devices.profiles[i];
+        const OA2DP_DeviceStatus  *s = &g_ui.devices.statuses[i];
+
+        /* Skip devices that don't expose battery (-2) or haven't
+         * been probed yet (-1).  Only warn for connected devices. */
+        if (s->battery_pct < 0) continue;
+        if (s->connection != OA2DP_CONN_CONNECTED) continue;
+
+        if (s->battery_pct <= BATTERY_LOW_THRESHOLD) {
+            if (!battery_warned(p->device_id)) {
+                char title[128];
+                char msg[256];
+                snprintf(title, sizeof(title),
+                         "Low battery: %s", p->display_name);
+                snprintf(msg, sizeof(msg),
+                         "%d%% remaining. Charge soon.", s->battery_pct);
+                oa2dp_tray_notify(title, msg);
+                oa2dp_log(OA2DP_LOG_WARN,
+                          "battery: %s ('%s') is at %d%% — notified",
+                          p->device_id, p->display_name, s->battery_pct);
+                mark_battery_warned(p->device_id);
+            }
+        } else if (s->battery_pct > BATTERY_LOW_THRESHOLD + BATTERY_HYSTERESIS_BAND) {
+            /* Above hysteresis — clear the flag so we'll warn again
+             * next time the device drops back below the threshold. */
+            if (battery_warned(p->device_id)) {
+                clear_battery_warned(p->device_id);
+                oa2dp_log(OA2DP_LOG_INFO,
+                          "battery: %s ('%s') back to %d%% — warning reset",
+                          p->device_id, p->display_name, s->battery_pct);
+            }
+        }
+    }
+}
+
 /* Capture the window's current "normal" rect (the size/pos to use
  * when not minimized or maximized) and persist it.  Called from
  * WM_CLOSE so we record the user's last layout *before* the HWND
@@ -113,7 +192,9 @@ static void save_window_placement(HWND hwnd)
         oa2dp_window_state_save(r->left, r->top,
                                 r->right - r->left,
                                 r->bottom - r->top,
-                                g_ui.advanced_mode);
+                                g_ui.advanced_mode,
+                                g_ui.update_check_enabled,
+                                g_ui.tray_notifications_enabled);
     }
 }
 
@@ -294,8 +375,12 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
 
     /* Restore previous window placement if available. */
     int win_x = 100, win_y = 100, win_w = 1541, win_h = 1010;
-    int loaded_advanced = 0;
-    oa2dp_window_state_load(&win_x, &win_y, &win_w, &win_h, &loaded_advanced);
+    int loaded_advanced     = 0;
+    int loaded_update_check = 0;
+    int loaded_tray_notify  = 0;
+    oa2dp_window_state_load(&win_x, &win_y, &win_w, &win_h,
+                            &loaded_advanced, &loaded_update_check,
+                            &loaded_tray_notify);
 
     /* Create window. */
     HWND hwnd = CreateWindowW(
@@ -332,8 +417,21 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
 
     /* ── Device enumeration ─────────────────────────────────────── */
     oa2dp_ui_state_init(&g_ui);
-    g_ui.advanced_mode = loaded_advanced;
+    g_ui.advanced_mode              = loaded_advanced;
+    g_ui.update_check_enabled       = loaded_update_check;
+    g_ui.tray_notifications_enabled = loaded_tray_notify;
     g_ui.hwnd = hwnd;
+
+    /* Apply the persisted notifications-enabled flag to the tray
+     * module so any early auto-heal / battery / update events fire
+     * (or don't fire) according to the user's saved preference. */
+    oa2dp_tray_notifications_set_enabled(g_ui.tray_notifications_enabled);
+
+    /* Fire the GitHub releases version check if the user opted in.
+     * Once-per-session — running again later in the loop is a
+     * no-op via the module's internal guard. */
+    if (g_ui.update_check_enabled)
+        oa2dp_update_check_async();
 
     /* ── A2DP driver detection ──────────────────────────────────
      * Populates g_ui.drivers so the UI panel can render and control
@@ -412,6 +510,7 @@ static int run_gui(HINSTANCE hInstance, int nCmdShow)
         DWORD now = GetTickCount();
         if (now - last_refresh >= REFRESH_INTERVAL_MS) {
             oa2dp_device_refresh_status(&g_ui.devices);
+            check_battery_warnings();
             last_refresh = now;
         }
         if (now - last_save >= SAVE_INTERVAL_MS) {

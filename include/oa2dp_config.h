@@ -59,8 +59,12 @@ int oa2dp_profile_load(const char *path, OA2DP_DeviceProfile *p);
  * was parsed, -1 otherwise — in which case the caller should fall
  * back to its built-in defaults.
  */
-int oa2dp_window_state_save(int x, int y, int w, int h, int advanced_mode);
-int oa2dp_window_state_load(int *x, int *y, int *w, int *h, int *advanced_mode);
+int oa2dp_window_state_save(int x, int y, int w, int h,
+                            int advanced_mode, int update_check_enabled,
+                            int tray_notifications_enabled);
+int oa2dp_window_state_load(int *x, int *y, int *w, int *h,
+                            int *advanced_mode, int *update_check_enabled,
+                            int *tray_notifications_enabled);
 
 #ifdef __cplusplus
 }

@@ -69,9 +69,18 @@ void oa2dp_tray_toggle_window(void *hwnd);
  *
  * Both arguments are UTF-8.  No-op if the tray icon was never
  * successfully added (so it's safe to call from CLI mode or before
- * tray init).
+ * tray init), or if notifications have been disabled via
+ * oa2dp_tray_notifications_set_enabled.
  */
 void oa2dp_tray_notify(const char *title, const char *message);
+
+/*
+ * Enable or disable balloon notifications globally.  When disabled,
+ * oa2dp_tray_notify becomes a no-op (the tray icon and right-click
+ * menu still work).  Default is disabled — the user opts in via the
+ * "Tray Notifications" checkbox in the UI.
+ */
+void oa2dp_tray_notifications_set_enabled(int enabled);
 
 #ifdef __cplusplus
 }
