@@ -30,11 +30,21 @@ extern "C" {
 
 /* ── shared state ───────────────────────────────────────────────── */
 
+#define VIS_SAMPLE_RING 4096
+
 static HANDLE             g_thread        = NULL;
 static volatile LONG      g_running       = 0;
 static CRITICAL_SECTION   g_lock;
 static int                g_lock_inited   = 0;
 static float              g_bands[OA2DP_VIS_BANDS] = {0};
+
+/* L/R sample ring buffers — used by the oscilloscope and
+ * vectorscope visualizer modes.  Updated under g_lock from the
+ * capture thread, snapshotted under g_lock by the UI thread. */
+static float              g_samples_l[VIS_SAMPLE_RING];
+static float              g_samples_r[VIS_SAMPLE_RING];
+static int                g_samples_head  = 0;
+static int                g_samples_count = 0;
 
 /* Log-spaced target frequencies covering the audible range that
  * matters most for music visualizers. */
@@ -175,12 +185,13 @@ static DWORD WINAPI capture_thread(LPVOID)
         if (n > (int)(sizeof(mono_buf) / sizeof(mono_buf[0])))
             n = (int)(sizeof(mono_buf) / sizeof(mono_buf[0]));
 
+        const float *src = (const float *)data;
+        int ch = fmt->nChannels;
+        float inv_ch = 1.0f / (float)ch;
+
         if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
             for (int i = 0; i < n; i++) mono_buf[i] = 0.0f;
         } else {
-            const float *src = (const float *)data;
-            int ch = fmt->nChannels;
-            float inv_ch = 1.0f / (float)ch;
             for (int i = 0; i < n; i++) {
                 float sum = 0.0f;
                 for (int c = 0; c < ch; c++)
@@ -194,15 +205,45 @@ static DWORD WINAPI capture_thread(LPVOID)
         float new_bands[OA2DP_VIS_BANDS];
         compute_bands(mono_buf, n, (int)fmt->nSamplesPerSec, new_bands);
 
-        /* Peak-hold + decay smoothing.  Rises instantly to a new peak
-         * but falls smoothly so the bars don't flicker. */
+        /* One lock acquire updates BOTH the band envelope and the
+         * raw L/R sample ring buffer used by oscilloscope and
+         * vectorscope modes.  Doing it together is cheaper than
+         * two separate sections and keeps band+sample state in
+         * sync from a UI snapshot perspective. */
         EnterCriticalSection(&g_lock);
+
+        /* Peak-hold + decay band smoothing — rises instantly to a
+         * new peak but falls smoothly so the bars don't flicker. */
         for (int b = 0; b < OA2DP_VIS_BANDS; b++) {
             if (new_bands[b] > g_bands[b])
                 g_bands[b] = new_bands[b];
             else
                 g_bands[b] = g_bands[b] * 0.85f + new_bands[b] * 0.15f;
         }
+
+        /* Push the new L/R samples into the ring.  For mono input
+         * we duplicate L into R; for >2 channels we just take the
+         * first two as left/right. */
+        if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
+            for (int i = 0; i < n; i++) {
+                int slot = g_samples_head;
+                g_samples_l[slot] = 0.0f;
+                g_samples_r[slot] = 0.0f;
+                g_samples_head = (g_samples_head + 1) % VIS_SAMPLE_RING;
+                if (g_samples_count < VIS_SAMPLE_RING) g_samples_count++;
+            }
+        } else {
+            for (int i = 0; i < n; i++) {
+                float l = (ch >= 1) ? src[i * ch + 0] : 0.0f;
+                float r = (ch >= 2) ? src[i * ch + 1] : l;
+                int slot = g_samples_head;
+                g_samples_l[slot] = l;
+                g_samples_r[slot] = r;
+                g_samples_head = (g_samples_head + 1) % VIS_SAMPLE_RING;
+                if (g_samples_count < VIS_SAMPLE_RING) g_samples_count++;
+            }
+        }
+
         LeaveCriticalSection(&g_lock);
     }
 
@@ -266,6 +307,29 @@ void oa2dp_audio_visualizer_get_bands(float *out, int count)
     }
     EnterCriticalSection(&g_lock);
     for (int i = 0; i < count; i++) out[i] = g_bands[i];
+    LeaveCriticalSection(&g_lock);
+}
+
+void oa2dp_audio_visualizer_get_samples(float *out_l, float *out_r,
+                                        int max_samples, int *out_count)
+{
+    if (out_count) *out_count = 0;
+    if (!out_l || !out_r || !out_count || max_samples <= 0) return;
+    if (!g_lock_inited) return;
+
+    EnterCriticalSection(&g_lock);
+    int n = g_samples_count;
+    if (n > max_samples) n = max_samples;
+
+    /* Copy the most recent n samples into out_l/out_r in
+     * chronological order (oldest first). */
+    int start = (g_samples_head - n + VIS_SAMPLE_RING) % VIS_SAMPLE_RING;
+    for (int i = 0; i < n; i++) {
+        int slot = (start + i) % VIS_SAMPLE_RING;
+        out_l[i] = g_samples_l[slot];
+        out_r[i] = g_samples_r[slot];
+    }
+    *out_count = n;
     LeaveCriticalSection(&g_lock);
 }
 

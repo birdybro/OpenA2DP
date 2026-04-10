@@ -32,6 +32,17 @@ void oa2dp_audio_visualizer_shutdown(void);
  * thread; takes a brief lock to snapshot the worker's state. */
 void oa2dp_audio_visualizer_get_bands(float *out, int count);
 
+/*
+ * Snapshot the most recent up-to-max_samples L/R sample pairs
+ * from the WASAPI loopback ring buffer (in chronological order,
+ * oldest first).  Used by the oscilloscope and vectorscope
+ * visualizer modes.  Writes the actual count returned into
+ * *out_count (will be <= max_samples and <= the ring buffer's
+ * fill level).  Safe to call from the UI thread.
+ */
+void oa2dp_audio_visualizer_get_samples(float *out_l, float *out_r,
+                                        int max_samples, int *out_count);
+
 #ifdef __cplusplus
 }
 #endif

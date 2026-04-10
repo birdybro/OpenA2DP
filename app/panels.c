@@ -83,14 +83,22 @@ static ImU32 vis_rgba(int r, int g, int b, int a)
 #define VIS_HIST_COLS 512
 
 typedef enum {
-    VIS_MODE_BARS      = 0,
-    VIS_MODE_WATERFALL = 1
+    VIS_MODE_BARS         = 0,
+    VIS_MODE_WATERFALL    = 1,
+    VIS_MODE_OSCILLOSCOPE = 2,
+    VIS_MODE_VECTORSCOPE  = 3,
+    VIS_MODE_COUNT
 } VisMode;
 
 static VisMode g_vis_mode = VIS_MODE_BARS;
 static float   g_vis_history[VIS_HIST_COLS * OA2DP_VIS_BANDS];
 static int     g_vis_hist_head  = 0;
 static int     g_vis_hist_count = 0;
+
+/* Peak-hold state for the bars mode.  Each bar tracks its recent
+ * peak value; the peak rises instantly to a new max and falls
+ * slowly so the user can see exactly how loud each band has been. */
+static float   g_vis_peak_hold[OA2DP_VIS_BANDS] = {0};
 
 /* Jet-ish heat palette: black → blue → magenta → red → yellow → white.
  * Looks like a real spectrogram and contrasts well on the dark
@@ -133,6 +141,16 @@ static void draw_vis_bars(ImDrawList *dl, ImVec2_c p0, ImVec2_c p1,
         if (v < 0.0f) v = 0.0f;
         if (v > 1.0f) v = 1.0f;
 
+        /* Update the per-bar peak hold: rise to new peaks, decay
+         * slowly otherwise.  Decay rate picked so a peak takes
+         * roughly 1.5 seconds to fall to zero at 60 fps. */
+        if (v > g_vis_peak_hold[i]) {
+            g_vis_peak_hold[i] = v;
+        } else {
+            g_vis_peak_hold[i] -= 0.011f;
+            if (g_vis_peak_hold[i] < 0.0f) g_vis_peak_hold[i] = 0.0f;
+        }
+
         float h = bar_h * v;
         if (h < 1.0f && v > 0.0f) h = 1.0f;
 
@@ -146,6 +164,15 @@ static void draw_vis_bars(ImDrawList *dl, ImVec2_c p0, ImVec2_c p1,
         ImU32 col = vis_rgba(r, g, bl, 255);
 
         ImDrawList_AddRectFilled(dl, b0, b1, col, 1.0f, 0);
+
+        /* Peak-hold marker line, 2 px tall. */
+        if (g_vis_peak_hold[i] > 0.01f) {
+            float peak_y = bottom - bar_h * g_vis_peak_hold[i];
+            ImVec2_c m0 = { b0.x, peak_y - 1.0f };
+            ImVec2_c m1 = { b1.x, peak_y + 1.0f };
+            ImDrawList_AddRectFilled(dl, m0, m1,
+                                     vis_rgba(240, 240, 250, 220), 0.0f, 0);
+        }
     }
 }
 
@@ -190,9 +217,102 @@ static void draw_vis_waterfall(ImDrawList *dl, ImVec2_c p0, ImVec2_c p1)
     }
 }
 
-/* Draw a WASAPI-loopback spectrum visualizer that fills the
- * available content region of its parent child window.  Click
- * anywhere on it to toggle bars ↔ waterfall mode. */
+static void draw_vis_oscilloscope(ImDrawList *dl, ImVec2_c p0, ImVec2_c p1)
+{
+    const float pad = 4.0f;
+    float W = p1.x - p0.x - pad * 2.0f;
+    float H = p1.y - p0.y - pad * 2.0f;
+    if (W < 2.0f || H < 2.0f) return;
+
+    static float L[2048], R[2048];
+    int got = 0;
+    oa2dp_audio_visualizer_get_samples(L, R, 2048, &got);
+    if (got < 2) return;
+
+    /* Mid-line for visual reference. */
+    float cy = p0.y + pad + H * 0.5f;
+    ImDrawList_AddLine(dl,
+        (ImVec2_c){ p0.x + pad,     cy },
+        (ImVec2_c){ p0.x + pad + W, cy },
+        vis_rgba(40, 60, 40, 255), 1.0f);
+
+    /* Walk the most recent ~W samples (one per pixel column).
+     * Mono mix of L+R, classic phosphor-green colour. */
+    int n = (int)W;
+    if (n > got) n = got;
+    int start = got - n;
+    float half_h = H * 0.5f;
+
+    ImU32 col = vis_rgba(80, 240, 120, 255);
+    float prev_x = p0.x + pad;
+    float prev_y = cy - ((L[start] + R[start]) * 0.5f) * half_h;
+    for (int i = 1; i < n; i++) {
+        float s = (L[start + i] + R[start + i]) * 0.5f;
+        if (s >  1.0f) s =  1.0f;
+        if (s < -1.0f) s = -1.0f;
+        float x = p0.x + pad + (float)i * W / (float)n;
+        float y = cy - s * half_h;
+        ImDrawList_AddLine(dl, (ImVec2_c){prev_x, prev_y},
+                               (ImVec2_c){x, y}, col, 1.5f);
+        prev_x = x;
+        prev_y = y;
+    }
+}
+
+static void draw_vis_vectorscope(ImDrawList *dl, ImVec2_c p0, ImVec2_c p1)
+{
+    const float pad = 4.0f;
+    float W = p1.x - p0.x - pad * 2.0f;
+    float H = p1.y - p0.y - pad * 2.0f;
+    float side = (W < H) ? W : H;
+    if (side < 4.0f) return;
+
+    float cx = p0.x + (p1.x - p0.x) * 0.5f;
+    float cy = p0.y + (p1.y - p0.y) * 0.5f;
+    float radius = side * 0.45f;
+
+    /* Reference grid: cross + diamond outline showing the rotated
+     * coordinate system.  Mono signals collapse to the vertical
+     * axis after the 45° rotation, which is the convention. */
+    ImU32 grid = vis_rgba(40, 55, 70, 200);
+    ImDrawList_AddLine(dl, (ImVec2_c){cx - radius, cy},
+                           (ImVec2_c){cx + radius, cy}, grid, 1.0f);
+    ImDrawList_AddLine(dl, (ImVec2_c){cx, cy - radius},
+                           (ImVec2_c){cx, cy + radius}, grid, 1.0f);
+
+    static float L[2048], R[2048];
+    int got = 0;
+    oa2dp_audio_visualizer_get_samples(L, R, 2048, &got);
+    if (got < 2) return;
+
+    /* Plot consecutive samples as line segments — gives the
+     * classic CRT vectorscope "phosphor trail" look.  45° rotation
+     * so mono content (L == R) maps to a pure vertical line. */
+    const float k = 0.7071f * radius * 0.95f;
+    float prev_x = cx + (L[0] - R[0]) * k;
+    float prev_y = cy - (L[0] + R[0]) * k;
+    for (int i = 1; i < got; i++) {
+        float l = L[i];
+        float r = R[i];
+        float x = cx + (l - r) * k;
+        float y = cy - (l + r) * k;
+
+        /* Brightness ramps from old (dim) to new (bright) so the
+         * trail fades like a real CRT phosphor. */
+        int a = (int)(40.0f + 215.0f * (float)i / (float)got);
+        ImU32 col = vis_rgba(80, 220, 240, a);
+
+        ImDrawList_AddLine(dl, (ImVec2_c){prev_x, prev_y},
+                               (ImVec2_c){x, y}, col, 1.0f);
+        prev_x = x;
+        prev_y = y;
+    }
+}
+
+/* Draw a WASAPI-loopback audio visualizer that fills the available
+ * content region of its parent child window.  Click anywhere on it
+ * to cycle through the four modes:
+ *   bars → waterfall → oscilloscope → vectorscope → bars */
 static void draw_audio_visualizer(void)
 {
     ImVec2_c avail = igGetContentRegionAvail();
@@ -205,9 +325,7 @@ static void draw_audio_visualizer(void)
      * This both reserves the layout space and gives us hit-testing. */
     igInvisibleButton("##visualizer_toggle", avail, 0);
     if (igIsItemClicked(ImGuiMouseButton_Left)) {
-        g_vis_mode = (g_vis_mode == VIS_MODE_BARS)
-                         ? VIS_MODE_WATERFALL
-                         : VIS_MODE_BARS;
+        g_vis_mode = (VisMode)(((int)g_vis_mode + 1) % VIS_MODE_COUNT);
     }
 
     /* Pull current bands from the worker and append to the history
@@ -230,10 +348,13 @@ static void draw_audio_visualizer(void)
     ImDrawList_AddRectFilled(dl, p0, p1, vis_rgba(12, 14, 22, 255), 4.0f, 0);
     ImDrawList_AddRect(dl, p0, p1, vis_rgba(60, 70, 90, 255), 4.0f, 0, 1.0f);
 
-    if (g_vis_mode == VIS_MODE_BARS)
-        draw_vis_bars(dl, p0, p1, bands);
-    else
-        draw_vis_waterfall(dl, p0, p1);
+    switch (g_vis_mode) {
+    case VIS_MODE_BARS:         draw_vis_bars(dl, p0, p1, bands);   break;
+    case VIS_MODE_WATERFALL:    draw_vis_waterfall(dl, p0, p1);     break;
+    case VIS_MODE_OSCILLOSCOPE: draw_vis_oscilloscope(dl, p0, p1);  break;
+    case VIS_MODE_VECTORSCOPE:  draw_vis_vectorscope(dl, p0, p1);   break;
+    default: break;
+    }
 }
 
 /* Compute the screen-space center of the main host window.  Used to
